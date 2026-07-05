@@ -1,0 +1,15 @@
+{
+  "name": "pyam-intake",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local patient intake prototype for PYAM clinic forms.",
+  "scripts": {
+    "dev": "powershell -ExecutionPolicy Bypass -File ./start-local.ps1",
+    "start": "powershell -ExecutionPolicy Bypass -File ./start-local.ps1",
+    "frontend:build": "npm --prefix frontend run build",
+    "frontend:dev": "npm --prefix frontend run dev"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,17 @@
+.git
+.agents
+.venv
+__pycache__
+*.pyc
+.env
+.env.*
+node_modules
+frontend/node_modules
+.npm-cache
+.next
+dist
+build
+backend/data/submissions.json
+backend/data/users.json
+backend/data/uvicorn-preview.*.log
+frontend/public/source-forms

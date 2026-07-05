@@ -1,0 +1,12 @@
+{
+  "name": "pyam-intake-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/write-config.js",
+    "dev": "npx serve public -l 5177"
+  },
+  "devDependencies": {
+    "serve": "^14.2.4"
+  }
+}

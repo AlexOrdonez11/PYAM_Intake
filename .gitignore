@@ -1,0 +1,9 @@
+backend/data/submissions.json
+backend/data/users.json
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+Thumbs.db
