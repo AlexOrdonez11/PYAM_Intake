@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { fieldOwner, isRepeatedDemographicField } from "../features/forms/fieldMeta";
+import { useEffect, useState } from "react";
+import { FormField } from "../components/fields/FormField";
+import { fieldOwner, isRepeatedDemographicField, isStaffOnlyField } from "../features/forms/fieldMeta";
 import { AsqScoreTable } from "../features/scoring/AsqScoreTable";
 
 function displayAnswer(value) {
@@ -12,6 +13,9 @@ function displayAnswer(value) {
 export function SubmissionsPage({ submissions, isLoading, detailLoading, selectedSubmission, forms, onSelect, onStatusChange }) {
   const [statusFilter, setStatusFilter] = useState("");
   const [reviewFilter, setReviewFilter] = useState("");
+  const [staffDraft, setStaffDraft] = useState({});
+  const [staffSaving, setStaffSaving] = useState(false);
+  const [staffMessage, setStaffMessage] = useState("");
   const visibleSubmissions = submissions.filter((submission) => {
     const statusMatch = statusFilter ? submission.status === statusFilter : true;
     const review = submission.review || { flags: [] };
@@ -23,11 +27,35 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
   });
 
   const selectedForm = selectedSubmission ? forms.find((form) => form.id === selectedSubmission.formId) : null;
+  const staffFields = (selectedForm?.sections || []).flatMap((section) =>
+    (section.fields || [])
+      .filter((field) => !isRepeatedDemographicField(field, section.title) && isStaffOnlyField(field))
+      .map((field) => ({ ...field, section: section.title }))
+  );
   const fieldMap = new Map(
     (selectedForm?.sections || []).flatMap((section) =>
       (section.fields || []).map((field) => [field.id, { ...field, section: section.title }])
     )
   );
+
+  useEffect(() => {
+    setStaffDraft(selectedSubmission?.answers || {});
+    setStaffMessage("");
+  }, [selectedSubmission?.id]);
+
+  async function saveStaffReview() {
+    if (!selectedSubmission) return;
+    setStaffSaving(true);
+    setStaffMessage("");
+    try {
+      await onStatusChange(selectedSubmission.id, selectedSubmission.status, staffDraft);
+      setStaffMessage("Staff review responses saved.");
+    } catch (error) {
+      setStaffMessage(error.message || "Unable to save staff review responses.");
+    } finally {
+      setStaffSaving(false);
+    }
+  }
 
   return (
     <section className="view active" aria-label="Submissions">
@@ -121,6 +149,30 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
                   ) : <span className="review-flag low">No automatic flags</span>}
                 </section>
                 <AsqScoreTable formId={selectedSubmission.formId} answers={selectedSubmission.answers || {}} submitted />
+                {staffFields.length ? (
+                  <section className="review-edit-panel">
+                    <div className="detail-header compact-detail-header">
+                      <div>
+                        <p className="eyebrow">Staff review</p>
+                        <h3>Staff responses</h3>
+                      </div>
+                      <button className="primary-button" type="button" onClick={saveStaffReview} disabled={staffSaving}>
+                        {staffSaving ? "Saving" : "Save review"}
+                      </button>
+                    </div>
+                    <div className="field-grid">
+                      {staffFields.map((field) => (
+                        <FormField
+                          field={field}
+                          key={field.id}
+                          value={staffDraft[field.id]}
+                          onChange={(fieldId, value) => setStaffDraft((current) => ({ ...current, [fieldId]: value }))}
+                        />
+                      ))}
+                    </div>
+                    {staffMessage ? <div className="message" role="status">{staffMessage}</div> : null}
+                  </section>
+                ) : null}
                 <div className="answer-list">
                   {Object.entries(selectedSubmission.answers || {}).filter(([key]) => {
                     const field = fieldMap.get(key);

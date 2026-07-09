@@ -1418,6 +1418,24 @@ textarea.field-control {
   background: #f3fbf6;
 }
 
+.review-edit-panel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid #bfd0e6;
+  border-radius: 14px;
+  background: #f7faff;
+  margin-bottom: 18px;
+}
+
+.compact-detail-header {
+  margin-bottom: 0;
+}
+
+.review-edit-panel .field-grid {
+  margin-top: 0;
+}
+
 .answer-list {
   display: grid;
   gap: 10px;

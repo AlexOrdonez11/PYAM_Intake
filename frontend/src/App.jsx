@@ -353,10 +353,13 @@ export default function App() {
     }
   }
 
-  async function updateSubmissionStatus(id, status) {
+  async function updateSubmissionStatus(id, status, nextAnswers) {
+    const body = { status };
+    if (nextAnswers) body.answers = addCalculatedScores(selectedSubmission?.formId, nextAnswers);
+
     await api(`/api/submissions/${encodeURIComponent(id)}`, {
       method: "PATCH",
-      body: JSON.stringify({ status })
+      body: JSON.stringify(body)
     }, authToken);
     await loadSubmissions();
     await selectSubmission(id);

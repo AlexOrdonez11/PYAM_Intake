@@ -123,6 +123,7 @@ class SubmissionCreate(BaseModel):
 
 class SubmissionUpdate(BaseModel):
     status: str | None = None
+    answers: dict[str, Any] | None = None
 
 
 def utc_now() -> str:
@@ -542,12 +543,24 @@ def update_submission(
         raise HTTPException(status_code=400, detail="Unsupported submission status.")
 
     now = utc_now()
-    audit_entry = {"at": now, "action": "updated", "by": request_user["id"], "status": payload.status}
+    set_fields: dict[str, Any] = {"updatedAt": now}
+    if payload.status:
+        set_fields["status"] = payload.status
+    if payload.answers is not None:
+        set_fields["answers"] = payload.answers
+
+    audit_entry = {
+        "at": now,
+        "action": "updated",
+        "by": request_user["id"],
+        "status": payload.status,
+        "answersUpdated": payload.answers is not None,
+    }
     if mongo_db is not None:
         result = submissions().find_one_and_update(
             {"id": submission_id},
             {
-                "$set": {"status": payload.status, "updatedAt": now},
+                "$set": set_fields,
                 "$push": {"audit": audit_entry},
             },
             return_document=ReturnDocument.AFTER,
@@ -561,7 +574,10 @@ def update_submission(
     if index == -1:
         raise HTTPException(status_code=404, detail="Submission not found.")
 
-    stored_items[index]["status"] = payload.status or stored_items[index].get("status", "new")
+    if payload.status:
+        stored_items[index]["status"] = payload.status
+    if payload.answers is not None:
+        stored_items[index]["answers"] = payload.answers
     stored_items[index]["updatedAt"] = now
     stored_items[index].setdefault("audit", []).append(audit_entry)
     save_local_submissions(stored_items)
