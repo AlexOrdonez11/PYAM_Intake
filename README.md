@@ -76,6 +76,23 @@ The app uses these collections:
 4. Create the first staff account through the app.
 5. Improve one intake form at a time in `backend/data/form-templates.json`, starting with the highest-priority clinic workflow.
 
+## Automatic Vercel Deployments
+
+The frontend deploys automatically through GitHub Actions:
+
+- Pull requests that change `frontend/**` create Vercel preview deployments.
+- Pushes to `main` that change `frontend/**` deploy to production.
+
+Add these repository secrets in GitHub before relying on the workflow:
+
+```text
+VERCEL_TOKEN=your-vercel-token
+VERCEL_ORG_ID=team_XHh1XjF391oObQFThSyhvayq
+VERCEL_PROJECT_ID=prj_AFAoMA8mwtc5HWOJ4uxPh5KrxAet
+```
+
+Keep `PYAM_API_BASE_URL` configured in the Vercel project environment variables. The workflow pulls Vercel's production or preview environment before building.
+
 ## Cloud Run
 
 From the repo root:
