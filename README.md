@@ -78,20 +78,23 @@ The app uses these collections:
 
 ## Automatic Vercel Deployments
 
-The frontend deploys automatically through GitHub Actions:
+Use Vercel's native GitHub integration for automatic frontend deployments. This avoids storing a Vercel CLI token in GitHub.
 
-- Pull requests that change `frontend/**` create Vercel preview deployments.
-- Pushes to `main` that change `frontend/**` deploy to production.
+In Vercel:
 
-Add these repository secrets in GitHub before relying on the workflow:
+1. Open the `frontend` project.
+2. Go to **Settings -> Git**.
+3. Connect the GitHub repository.
+4. Set the project root directory to `frontend`.
+5. Keep the build settings as:
 
 ```text
-VERCEL_TOKEN=your-vercel-token
-VERCEL_ORG_ID=team_XHh1XjF391oObQFThSyhvayq
-VERCEL_PROJECT_ID=prj_AFAoMA8mwtc5HWOJ4uxPh5KrxAet
+Install Command: npm ci
+Build Command: npm run build
+Output Directory: dist
 ```
 
-Keep `PYAM_API_BASE_URL` configured in the Vercel project environment variables. The workflow pulls Vercel's production or preview environment before building.
+After that, pushes to the connected production branch deploy automatically, and pull requests create preview deployments. Keep `PYAM_API_BASE_URL` configured in the Vercel project environment variables.
 
 ## Cloud Run
 
