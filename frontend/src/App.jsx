@@ -221,6 +221,11 @@ export default function App() {
     loadStaff();
   }, [authToken, currentUser?.role, loadSubmissions, loadStaff]);
 
+  useEffect(() => {
+    if (!authReady || !authToken || view !== "submissions") return;
+    loadSubmissions();
+  }, [authReady, authToken, view, loadSubmissions]);
+
   function changeView(nextView) {
     navigateToView(visibleViewFor(nextView, { mode, user: currentUser, routingComplete, showAllForms }));
   }

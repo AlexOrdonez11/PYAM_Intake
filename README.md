@@ -39,6 +39,7 @@ Copy `.env.example` into your deployment environment and set:
 - `MONGODB_DB`: database name, defaults to `pyam_intake`
 - `JWT_SECRET`: long random secret for staff login tokens
 - `CORS_ORIGINS`: comma-separated frontend URLs allowed to call the API
+- `CORS_ORIGIN_REGEX`: optional regex for allowed browser origins, useful for Vercel preview URLs
 - `PYAM_API_BASE_URL`: Vercel frontend build variable pointing to the Cloud Run URL
 
 ## Staff Login
@@ -70,7 +71,7 @@ The app uses these collections:
 ## Deployment Plan
 
 1. Create MongoDB Atlas database and copy the connection string.
-2. Deploy the root `Dockerfile` to GCP Cloud Run with `MONGO_URI`, `MONGODB_DB`, `JWT_SECRET`, and `CORS_ORIGINS`.
+2. Deploy the root `Dockerfile` to GCP Cloud Run with `MONGO_URI`, `MONGODB_DB`, `JWT_SECRET`, `CORS_ORIGINS`, and optionally `CORS_ORIGIN_REGEX`.
 3. Deploy `frontend/` to Vercel with `PYAM_API_BASE_URL` set to the Cloud Run service URL.
 4. Create the first staff account through the app.
 5. Improve one intake form at a time in `backend/data/form-templates.json`, starting with the highest-priority clinic workflow.
@@ -87,6 +88,18 @@ gcloud run deploy pyam-intake-api `
 ```
 
 Set runtime environment variables in the provider console or with your secret manager. Do not paste real connection strings or token secrets into committed files. After deploy, copy the backend service URL into the frontend environment as `PYAM_API_BASE_URL`.
+
+For the current Vercel prototype, Cloud Run must allow the Vercel browser origin. At minimum:
+
+```text
+CORS_ORIGINS=http://localhost:5177,http://127.0.0.1:5177,http://localhost:5178,http://127.0.0.1:5178,https://frontend-ruddy-eight-66.vercel.app
+```
+
+After redeploying the backend with this repo version, you can also allow Vercel preview deployments with:
+
+```text
+CORS_ORIGIN_REGEX=https://.*\.vercel\.app
+```
 
 ## Current Features
 

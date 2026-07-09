@@ -41,11 +41,19 @@ MONGODB_DB = os.getenv("MONGODB_DB", "pyam_intake")
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me-for-production")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "720"))
+DEFAULT_CORS_ORIGINS = (
+    "http://localhost:5177,"
+    "http://127.0.0.1:5177,"
+    "http://localhost:5178,"
+    "http://127.0.0.1:5178,"
+    "https://frontend-ruddy-eight-66.vercel.app"
+)
 CORS_ORIGINS = [
     origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", "http://localhost:5177,http://127.0.0.1:5177").split(",")
+    for origin in os.getenv("CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(",")
     if origin.strip()
 ]
+CORS_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX")
 
 mongo_client: MongoClient | None = MongoClient(MONGO_URI) if MONGO_URI else None
 mongo_db = mongo_client[MONGODB_DB] if mongo_client is not None else None
@@ -60,6 +68,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
+    allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
