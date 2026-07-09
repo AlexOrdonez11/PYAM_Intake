@@ -1,9 +1,43 @@
+# Local secrets and environment files
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+
+# Private keys and credential exports
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*credentials*.json
+*credential*.json
+*secret*.json
+service-account*.json
+gcp-*.json
+google-application-credentials*.json
+
+# Local prototype data that may include users or submissions
 backend/data/submissions.json
 backend/data/users.json
+backend/data/*.local.json
+backend/data/uvicorn-preview.*.log
+
+# Dependencies and build output
 node_modules/
+frontend/node_modules/
 .venv/
 __pycache__/
 *.pyc
-.env
+dist/
+build/
+frontend/dist/
+frontend/.npm-cache/
+.next/
+
+# OS/editor noise
 .DS_Store
 Thumbs.db
+*.log

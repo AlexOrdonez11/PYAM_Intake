@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -17,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 from backend.db_schema import ensure_database_schema, seed_form_templates  # noqa: E402
 
 
-DEMO_PASSWORD = "DemoStaff123!"
+DEMO_PASSWORD = os.getenv("PYAM_DEMO_STAFF_PASSWORD") or secrets.token_urlsafe(18)
 
 STAFF_USERS = [
     {

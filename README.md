@@ -83,11 +83,10 @@ From the repo root:
 gcloud run deploy pyam-intake-api `
   --source . `
   --region us-central1 `
-  --allow-unauthenticated `
-  --set-env-vars MONGO_URI="YOUR_MONGO_URI",MONGODB_DB="pyam_intake",JWT_SECRET="YOUR_LONG_RANDOM_SECRET",CORS_ORIGINS="https://your-vercel-app.vercel.app"
+  --allow-unauthenticated
 ```
 
-After deploy, copy the Cloud Run service URL into Vercel as `PYAM_API_BASE_URL`.
+Set runtime environment variables in the provider console or with your secret manager. Do not paste real connection strings or token secrets into committed files. After deploy, copy the backend service URL into the frontend environment as `PYAM_API_BASE_URL`.
 
 ## Current Features
 
