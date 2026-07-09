@@ -1085,6 +1085,202 @@ body.patient-mode[data-view="intake"] .intake-brand-row {
   font-weight: 750;
 }
 
+.asq-legend {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px 20px;
+  border-bottom: 1px solid #dce7f3;
+  background: #fbfdff;
+}
+
+.asq-legend-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.asq-legend-head h4 {
+  margin: 0 0 4px;
+  font-size: 0.98rem;
+}
+
+.asq-legend-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.asq-legend-key {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.asq-legend-key span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid #d8e4f2;
+  border-radius: 999px;
+  color: #52677d;
+  background: #fff;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.asq-legend-key i {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+}
+
+.asq-legend-key i.below,
+.asq-range.below {
+  background: #f05f5f;
+}
+
+.asq-legend-key i.monitor,
+.asq-range.monitor {
+  background: #f6c14d;
+}
+
+.asq-legend-key i.above,
+.asq-range.above {
+  background: #6fc38f;
+}
+
+.asq-scale {
+  position: relative;
+  height: 20px;
+  margin: 2px 86px 0 176px;
+}
+
+.asq-scale span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  color: #52677d;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.asq-range-list {
+  display: grid;
+  gap: 10px;
+}
+
+.asq-range-row {
+  display: grid;
+  grid-template-columns: 158px minmax(180px, 1fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.asq-range-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.asq-range-label strong {
+  font-size: 0.88rem;
+}
+
+.asq-range-label span {
+  min-width: 54px;
+  text-align: right;
+  color: #52677d;
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.asq-range-track {
+  position: relative;
+  height: 24px;
+  border: 1px solid #b8c8da;
+  border-radius: 999px;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(10, 36, 66, 0.16) 0,
+      rgba(10, 36, 66, 0.16) 1px,
+      transparent 1px,
+      transparent calc(100% / 12)
+    ),
+    #fff;
+  overflow: visible;
+}
+
+.asq-range {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  opacity: 0.74;
+}
+
+.asq-range.below {
+  left: 0;
+  border-radius: 999px 0 0 999px;
+}
+
+.asq-range.above {
+  border-radius: 0 999px 999px 0;
+}
+
+.asq-score-marker {
+  position: absolute;
+  top: 50%;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+  border: 3px solid #102844;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 8px 18px rgba(12, 29, 53, 0.22);
+  z-index: 2;
+}
+
+.asq-score-marker span {
+  position: absolute;
+  left: 50%;
+  bottom: 27px;
+  transform: translateX(-50%);
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #fff;
+  background: #102844;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.asq-range-row.below .asq-score-marker {
+  border-color: #a92525;
+}
+
+.asq-range-row.below .asq-score-marker span {
+  background: #a92525;
+}
+
+.asq-range-row.monitor .asq-score-marker {
+  border-color: #8a5a00;
+}
+
+.asq-range-row.monitor .asq-score-marker span {
+  background: #8a5a00;
+}
+
+.asq-range-row.above .asq-score-marker {
+  border-color: #146c3f;
+}
+
+.asq-range-row.above .asq-score-marker span {
+  background: #146c3f;
+}
+
 .score-table-wrap {
   overflow-x: auto;
 }
@@ -1518,6 +1714,11 @@ textarea.field-control {
     border-bottom: 1px solid var(--line);
     max-height: none;
   }
+
+  .asq-scale {
+    margin-right: 12px;
+    margin-left: 176px;
+  }
 }
 
 @media (max-width: 680px) {
@@ -1594,6 +1795,27 @@ textarea.field-control {
   .field-grid,
   .answer-row {
     grid-template-columns: 1fr;
+  }
+
+  .asq-legend-head,
+  .asq-range-row {
+    grid-template-columns: 1fr;
+  }
+
+  .asq-legend-head {
+    display: grid;
+  }
+
+  .asq-legend-key {
+    justify-content: flex-start;
+  }
+
+  .asq-scale {
+    margin: 0 12px;
+  }
+
+  .asq-range-row {
+    gap: 8px;
   }
 
   .search-input {
