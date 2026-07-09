@@ -6,7 +6,7 @@
     <title>PYAM Intake</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
-  <body class="patient-mode">
+  <body class="access-mode patient-mode">
     <div class="app-shell">
       <aside class="sidebar" aria-label="Primary">
         <div class="brand">
@@ -22,6 +22,7 @@
           <button class="nav-button" data-view="intake" type="button">Intake</button>
           <button class="nav-button" data-view="submissions" data-staff-only type="button">Submissions</button>
           <button class="nav-button" data-view="templates" data-staff-only type="button">Templates</button>
+          <button class="nav-button" data-view="staff" data-admin-only type="button">Staff</button>
         </nav>
       </aside>
 
@@ -37,19 +38,61 @@
             <span class="pill hidden" id="auth-user" data-staff-only></span>
             <button class="ghost-button" id="start-over-button" type="button">Start over</button>
             <button class="ghost-button" id="patient-mode-button" data-staff-only type="button">Patient view</button>
-            <button class="ghost-button" id="staff-mode-button" type="button">Staff view</button>
+            <button class="ghost-button" id="staff-mode-button" type="button">Staff login</button>
             <button class="ghost-button hidden" id="logout-button" data-staff-only type="button">Log out</button>
             <button class="ghost-button" id="refresh-button" data-staff-only type="button">Refresh</button>
           </div>
         </header>
 
-        <section class="view active" id="view-welcome" aria-labelledby="page-title">
+        <section class="view active" id="view-login" aria-label="Access">
+          <div class="access-layout">
+            <section class="panel access-panel" aria-label="Sign in or continue">
+              <div class="brand access-brand">
+                <span class="brand-mark">P</span>
+                <div>
+                  <strong>PYAM Intake</strong>
+                  <span>Clinic intake platform</span>
+                </div>
+              </div>
+
+              <form class="auth-card inline-auth-card" id="auth-form">
+                <div class="field">
+                  <label for="auth-email">Email</label>
+                  <input id="auth-email" class="field-control" name="email" type="email" autocomplete="email" required>
+                </div>
+                <div class="field">
+                  <label for="auth-password">Password</label>
+                  <input id="auth-password" class="field-control" name="password" type="password" autocomplete="current-password" minlength="8" required>
+                </div>
+                <div class="field">
+                  <label for="auth-name">Name</label>
+                  <input id="auth-name" class="field-control" name="name" type="text" autocomplete="name" placeholder="Only needed for first admin">
+                </div>
+                <div class="form-footer access-actions">
+                  <button class="secondary-button hidden" id="register-button" type="button">Create First Admin</button>
+                  <button class="primary-button" type="submit">Log in</button>
+                </div>
+                <div id="auth-message" class="message" role="status"></div>
+              </form>
+
+              <div class="patient-entry">
+                <div>
+                  <h2>Here as a patient?</h2>
+                  <p>No login needed. Continue to answer a few visit questions and find the right forms.</p>
+                </div>
+                <button class="secondary-button" id="continue-patient-button" type="button">Continue as patient</button>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-welcome" aria-labelledby="page-title">
           <div class="welcome-layout">
             <section class="panel welcome-panel" aria-label="Start intake">
               <div class="welcome-copy">
                 <p class="eyebrow">Patient intake</p>
-                <h2>Let’s find the right forms for this visit.</h2>
-                <p>Answer these questions first. The next screen will show only the packets that match the patient’s age and visit reason.</p>
+                <h2>Let's find the right forms for this visit.</h2>
+                <p>Answer these questions first. The next screen will show only the packets that match the patient's age and visit reason.</p>
               </div>
               <form id="routing-form" class="routing-form routing-form-large">
                 <div class="field full">
@@ -153,13 +196,21 @@
                 <h2>Submissions</h2>
                 <p>Review locally stored intake records.</p>
               </div>
-              <select id="status-filter" class="select-input">
-                <option value="">All statuses</option>
-                <option value="new">New</option>
-                <option value="in-review">In review</option>
-                <option value="needs-follow-up">Needs follow-up</option>
-                <option value="complete">Complete</option>
-              </select>
+              <div class="submission-controls">
+                <div class="review-tabs" id="review-tabs" aria-label="Review filters">
+                  <button class="review-tab active" data-review-filter="" type="button">All</button>
+                  <button class="review-tab" data-review-filter="needs-review" type="button">Needs review</button>
+                  <button class="review-tab" data-review-filter="asq" type="button">ASQ flags</button>
+                  <button class="review-tab" data-review-filter="behavioral" type="button">Behavioral</button>
+                </div>
+                <select id="status-filter" class="select-input">
+                  <option value="">All statuses</option>
+                  <option value="new">New</option>
+                  <option value="in-review">In review</option>
+                  <option value="needs-follow-up">Needs follow-up</option>
+                  <option value="complete">Complete</option>
+                </select>
+              </div>
             </div>
             <div class="submission-layout">
               <div class="submission-list" id="submission-list"></div>
@@ -184,37 +235,77 @@
             <div class="template-grid" id="template-grid"></div>
           </div>
         </section>
+
+        <section class="view" id="view-staff" aria-label="Staff">
+          <div class="staff-layout">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Staff Access</h2>
+                  <p>Create staff accounts and assign prototype roles.</p>
+                </div>
+              </div>
+              <form class="staff-form" id="staff-form">
+                <div class="field">
+                  <label for="staff-name">Name</label>
+                  <input id="staff-name" class="field-control" name="name" type="text" required>
+                </div>
+                <div class="field">
+                  <label for="staff-email">Email</label>
+                  <input id="staff-email" class="field-control" name="email" type="email" required>
+                </div>
+                <div class="field">
+                  <label for="staff-password">Temporary password</label>
+                  <input id="staff-password" class="field-control" name="password" type="password" minlength="8" required>
+                </div>
+                <div class="field">
+                  <label for="staff-role">Role</label>
+                  <select id="staff-role" class="field-control" name="role">
+                    <option value="staff">Staff</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="staff-title">Title</label>
+                  <input id="staff-title" class="field-control" name="title" type="text" placeholder="Front desk, nurse, manager">
+                </div>
+                <div class="field">
+                  <label for="staff-location">Clinic location</label>
+                  <select id="staff-location" class="field-control" name="clinicLocation">
+                    <option value="">No default</option>
+                    <option value="eagan">Eagan</option>
+                    <option value="maplewood">Maplewood</option>
+                  </select>
+                </div>
+                <div class="form-footer">
+                  <button class="primary-button" type="submit">Create User</button>
+                </div>
+                <div id="staff-message" class="message" role="status"></div>
+              </form>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Current Users</h2>
+                  <p>Admin users can manage staff access.</p>
+                </div>
+              </div>
+              <div class="staff-list" id="staff-list"></div>
+            </section>
+          </div>
+        </section>
       </main>
     </div>
 
-    <div class="auth-dialog hidden" id="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
-      <form class="auth-card" id="auth-form">
-        <div>
-          <p class="eyebrow">Staff access</p>
-          <h2 id="auth-title">Sign in to review submissions</h2>
-        </div>
-        <div class="field">
-          <label for="auth-email">Email</label>
-          <input id="auth-email" class="field-control" name="email" type="email" autocomplete="email" required>
-        </div>
-        <div class="field">
-          <label for="auth-password">Password</label>
-          <input id="auth-password" class="field-control" name="password" type="password" autocomplete="current-password" minlength="8" required>
-        </div>
-        <div class="field">
-          <label for="auth-name">Name</label>
-          <input id="auth-name" class="field-control" name="name" type="text" autocomplete="name" placeholder="Only needed for first account">
-        </div>
-        <div class="form-footer auth-actions">
-          <button class="secondary-button" id="auth-cancel" type="button">Cancel</button>
-          <button class="secondary-button" id="register-button" type="button">Create account</button>
-          <button class="primary-button" type="submit">Log in</button>
-        </div>
-        <div id="auth-message" class="message" role="status"></div>
-      </form>
-    </div>
-
     <script src="/config.js"></script>
+    <script src="/js/state.js" defer></script>
+    <script src="/js/utils.js" defer></script>
+    <script src="/js/api.js" defer></script>
+    <script src="/js/asq-config.js" defer></script>
+    <script src="/js/field-meta.js" defer></script>
+    <script src="/js/scoring.js" defer></script>
+    <script src="/js/review.js" defer></script>
     <script src="/app.js" defer></script>
   </body>
 </html>

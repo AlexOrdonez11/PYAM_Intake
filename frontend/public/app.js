@@ -1,76 +1,5 @@
-const state = {
-  forms: [],
-  submissions: [],
-  selectedFormId: null,
-  selectedSubmissionId: null,
-  statusFilter: "",
-  recommendedFormIds: [],
-  routingComplete: false,
-  showAllForms: false,
-  mode: "patient",
-  authToken: localStorage.getItem("pyam.authToken") || "",
-  currentUser: null
-};
+﻿
 
-const els = {
-  healthPill: document.querySelector("#health-pill"),
-  refreshButton: document.querySelector("#refresh-button"),
-  navButtons: document.querySelectorAll(".nav-button"),
-  views: document.querySelectorAll(".view"),
-  pageTitle: document.querySelector("#page-title"),
-  viewModePill: document.querySelector("#view-mode-pill"),
-  patientModeButton: document.querySelector("#patient-mode-button"),
-  staffModeButton: document.querySelector("#staff-mode-button"),
-  logoutButton: document.querySelector("#logout-button"),
-  authUser: document.querySelector("#auth-user"),
-  authDialog: document.querySelector("#auth-dialog"),
-  authForm: document.querySelector("#auth-form"),
-  authEmail: document.querySelector("#auth-email"),
-  authPassword: document.querySelector("#auth-password"),
-  authName: document.querySelector("#auth-name"),
-  authCancel: document.querySelector("#auth-cancel"),
-  registerButton: document.querySelector("#register-button"),
-  authMessage: document.querySelector("#auth-message"),
-  startOverButton: document.querySelector("#start-over-button"),
-  routingForm: document.querySelector("#routing-form"),
-  showAllForms: document.querySelector("#show-all-forms"),
-  formListTitle: document.querySelector("#form-list-title"),
-  formListDescription: document.querySelector("#form-list-description"),
-  formSearch: document.querySelector("#form-search"),
-  formList: document.querySelector("#form-list"),
-  selectedEmpty: document.querySelector("#selected-form-empty"),
-  intakeForm: document.querySelector("#intake-form"),
-  selectedCategory: document.querySelector("#selected-category"),
-  selectedName: document.querySelector("#selected-name"),
-  selectedDescription: document.querySelector("#selected-description"),
-  selectedTime: document.querySelector("#selected-time"),
-  formSections: document.querySelector("#form-sections"),
-  formMessage: document.querySelector("#form-message"),
-  clearForm: document.querySelector("#clear-form"),
-  statusFilter: document.querySelector("#status-filter"),
-  submissionList: document.querySelector("#submission-list"),
-  submissionDetail: document.querySelector("#submission-detail"),
-  templateGrid: document.querySelector("#template-grid")
-};
-
-async function api(path, options = {}) {
-  const apiBase = window.PYAM_API_BASE_URL || "";
-  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
-  if (state.authToken) headers.Authorization = `Bearer ${state.authToken}`;
-
-  const response = await fetch(`${apiBase}${path}`, {
-    headers,
-    ...options
-  });
-  const payload = await response.json();
-  if (!response.ok) {
-    const detail = payload.detail || {};
-    const error = new Error(payload.error || detail.error || (typeof detail === "string" ? detail : "Request failed"));
-    error.details = payload.details || detail.details || [];
-    throw error;
-  }
-  return payload;
-}
 
 function setAuthSession(payload) {
   state.authToken = payload.accessToken || "";
@@ -85,20 +14,26 @@ function setAuthSession(payload) {
 
 function renderAuthState() {
   const isLoggedIn = Boolean(state.authToken && state.currentUser);
-  els.authUser.textContent = isLoggedIn ? state.currentUser.email : "";
+  const isAdmin = state.currentUser?.role === "admin";
+  document.body.classList.toggle("admin-mode", isAdmin);
+  els.authUser.textContent = isLoggedIn ? `${state.currentUser.email} - ${state.currentUser.role}` : "";
   els.authUser.classList.toggle("hidden", !isLoggedIn);
   els.logoutButton.classList.toggle("hidden", !isLoggedIn);
+  document.querySelectorAll("[data-admin-only]").forEach((item) => {
+    item.classList.toggle("hidden", !isAdmin);
+  });
 }
 
 function showAuthDialog() {
   els.authMessage.textContent = "";
   els.authMessage.classList.remove("error");
-  els.authDialog.classList.remove("hidden");
+  renderBootstrapState();
+  document.body.classList.add("access-mode");
+  setView("login");
   els.authEmail.focus();
 }
 
 function hideAuthDialog() {
-  els.authDialog.classList.add("hidden");
   els.authForm.reset();
 }
 
@@ -118,12 +53,28 @@ async function authenticate(mode = "login") {
     setAuthSession(payload);
     hideAuthDialog();
     state.mode = "staff";
+    document.body.classList.remove("access-mode");
     applyMode();
     await loadSubmissions();
+    if (state.currentUser?.role === "admin") await loadStaff();
     setView("intake");
   } catch (error) {
     els.authMessage.classList.add("error");
     els.authMessage.textContent = error.message;
+  }
+}
+
+async function loadBootstrapState() {
+  const payload = await api("/api/auth/bootstrap");
+  state.needsFirstAdmin = Boolean(payload.needsFirstAdmin);
+  renderBootstrapState();
+}
+
+function renderBootstrapState() {
+  els.registerButton.classList.toggle("hidden", !state.needsFirstAdmin);
+  els.authName.closest(".field").classList.toggle("hidden", !state.needsFirstAdmin);
+  if (state.needsFirstAdmin) {
+    els.registerButton.textContent = "Create First Admin";
   }
 }
 
@@ -135,6 +86,7 @@ async function restoreAuthSession() {
   try {
     const payload = await api("/api/auth/me");
     state.currentUser = payload.user;
+    state.mode = "staff";
   } catch {
     state.authToken = "";
     state.currentUser = null;
@@ -144,7 +96,13 @@ async function restoreAuthSession() {
 }
 
 function setView(viewName) {
-  if (state.mode === "patient" && ["submissions", "templates"].includes(viewName)) {
+  if (viewName === "login") {
+    document.body.classList.add("access-mode");
+  }
+  if (viewName === "staff" && state.currentUser?.role !== "admin") {
+    viewName = state.mode === "staff" ? "intake" : "welcome";
+  }
+  if (state.mode === "patient" && ["submissions", "templates", "staff"].includes(viewName)) {
     viewName = "welcome";
   }
   if (viewName === "intake" && !state.routingComplete && !state.showAllForms) {
@@ -157,8 +115,12 @@ function setView(viewName) {
     view.classList.toggle("active", view.id === `view-${viewName}`);
   });
   els.pageTitle.textContent =
-    viewName === "submissions"
+    viewName === "login"
+      ? "Welcome"
+      : viewName === "submissions"
       ? "Submission Review"
+      : viewName === "staff"
+        ? "Staff Access"
       : viewName === "templates"
         ? "Template Library"
         : viewName === "welcome"
@@ -168,6 +130,7 @@ function setView(viewName) {
 
 function applyMode() {
   const isStaff = state.mode === "staff";
+  if (isStaff) document.body.classList.remove("access-mode");
   document.body.classList.toggle("staff-mode", isStaff);
   document.body.classList.toggle("patient-mode", !isStaff);
   els.viewModePill.textContent = isStaff ? "Staff view" : "Patient view";
@@ -179,7 +142,7 @@ function applyMode() {
     state.selectedFormId = state.selectedFormId || state.forms[0]?.id || null;
   } else {
     state.showAllForms = false;
-    const restrictedViewActive = ["submissions", "templates"].some((view) =>
+    const restrictedViewActive = ["submissions", "templates", "staff"].some((view) =>
       document.querySelector(`#view-${view}`)?.classList.contains("active")
     );
     if (restrictedViewActive) setView("welcome");
@@ -187,10 +150,12 @@ function applyMode() {
 
   renderFormList();
   renderSelectedForm();
+  renderAuthState();
 }
 
 function resetPatientFlow() {
   state.mode = "patient";
+  document.body.classList.remove("access-mode");
   state.routingComplete = false;
   state.showAllForms = false;
   state.recommendedFormIds = [];
@@ -302,14 +267,6 @@ function recommendFormsFromRouting(formData) {
   return unique(ids);
 }
 
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
 function renderFormList() {
   const query = els.formSearch.value.trim().toLowerCase();
   const baseForms = state.showAllForms
@@ -346,17 +303,15 @@ function renderFormList() {
     .join("");
 }
 
-function fieldName(field) {
-  return `field_${field.id}`;
-}
 
 function renderField(field) {
   const required = field.required ? '<span class="required" aria-hidden="true">*</span>' : "";
   const common = `id="${fieldName(field)}" name="${field.id}" ${field.required ? "required" : ""}`;
+  const staffOnly = isStaffOnlyField(field) ? " data-staff-only" : "";
 
   if (["text", "email", "tel", "date", "number", "datetime-local"].includes(field.type)) {
     return `
-      <div class="field">
+      <div class="field"${staffOnly}>
         <label for="${fieldName(field)}">${escapeHtml(field.label)} ${required}</label>
         <input class="field-control" ${common} type="${field.type}">
       </div>
@@ -365,7 +320,7 @@ function renderField(field) {
 
   if (field.type === "signature") {
     return `
-      <div class="field">
+      <div class="field"${staffOnly}>
         <label for="${fieldName(field)}">${escapeHtml(field.label)} ${required}</label>
         <input class="field-control" ${common} type="text" placeholder="Type full legal name">
       </div>
@@ -374,7 +329,7 @@ function renderField(field) {
 
   if (field.type === "textarea") {
     return `
-      <div class="field full">
+      <div class="field full"${staffOnly}>
         <label for="${fieldName(field)}">${escapeHtml(field.label)} ${required}</label>
         <textarea class="field-control" ${common}></textarea>
       </div>
@@ -383,7 +338,7 @@ function renderField(field) {
 
   if (field.type === "select") {
     return `
-      <div class="field">
+      <div class="field"${staffOnly}>
         <label for="${fieldName(field)}">${escapeHtml(field.label)} ${required}</label>
         <select class="field-control" ${common}>
           <option value="">Select</option>
@@ -395,7 +350,7 @@ function renderField(field) {
 
   if (field.type === "checkbox") {
     return `
-      <div class="field full">
+      <div class="field full"${staffOnly}>
         <label class="choice-option">
           <input type="checkbox" name="${field.id}" ${field.required ? "required" : ""}>
           <span>${escapeHtml(field.label)} ${required}</span>
@@ -407,7 +362,7 @@ function renderField(field) {
   if (field.type === "radio" || field.type === "multicheck") {
     const inputType = field.type === "radio" ? "radio" : "checkbox";
     return `
-      <div class="field full">
+      <div class="field full"${staffOnly}>
         <span class="choice-label">${escapeHtml(field.label)} ${required}</span>
         <div class="choice-group">
           ${(field.options || [])
@@ -427,7 +382,7 @@ function renderField(field) {
 
   if (field.type === "scale") {
     return `
-      <div class="field full">
+      <div class="field full"${staffOnly}>
         <span class="choice-label">${escapeHtml(field.label)} ${required}</span>
         <div class="scale-group">
           ${(field.options || [])
@@ -467,12 +422,17 @@ function renderContentItem(item) {
   return `<div class="content-block${variant}">${title}${text}${list}${link}</div>`;
 }
 
+
 function renderSection(section) {
   const content = (section.content || []).map(renderContentItem).join("");
-  const fields = (section.fields || []).map(renderField).join("");
+  const fields = (section.fields || [])
+    .filter((field) => !isRepeatedDemographicField(field, section.title))
+    .map(renderField)
+    .join("");
+  const staffOnly = section.staffOnly ? " data-staff-only" : "";
 
   return `
-    <section class="form-section">
+    <section class="form-section"${staffOnly}>
       <h3>${escapeHtml(section.title)}</h3>
       ${content ? `<div class="section-content">${content}</div>` : ""}
       ${fields ? `<div class="field-grid">${fields}</div>` : ""}
@@ -498,7 +458,8 @@ function renderSelectedForm() {
   els.formMessage.textContent = "";
   els.formMessage.classList.remove("error");
 
-  els.formSections.innerHTML = form.sections.map(renderSection).join("");
+  els.formSections.innerHTML = `${renderAsqScoreTable(form.id)}${form.sections.map(renderSection).join("")}`;
+  syncAsqScores();
 }
 
 function collectAnswers(form) {
@@ -506,6 +467,8 @@ function collectAnswers(form) {
 
   for (const section of form.sections) {
     for (const field of section.fields || []) {
+      if (isRepeatedDemographicField(field, section.title)) continue;
+      if (!document.body.classList.contains("staff-mode") && isStaffOnlyField(field)) continue;
       const controls = [...els.intakeForm.querySelectorAll(`[name="${CSS.escape(field.id)}"]`)];
       if (!controls.length) continue;
 
@@ -522,8 +485,16 @@ function collectAnswers(form) {
     }
   }
 
+  for (const section of form.sections) {
+    for (const field of section.fields || []) {
+      if (!isRepeatedDemographicField(field, section.title)) continue;
+      answers[field.id] = demographicAutofillValue(field, answers);
+    }
+  }
+
   return answers;
 }
+
 
 async function submitIntake(event) {
   event.preventDefault();
@@ -548,9 +519,21 @@ async function submitIntake(event) {
 }
 
 function renderSubmissions() {
-  const submissions = state.statusFilter
-    ? state.submissions.filter((submission) => submission.status === state.statusFilter)
-    : state.submissions;
+  const submissions = state.submissions.filter((submission) => {
+    const statusMatch = state.statusFilter ? submission.status === state.statusFilter : true;
+    const review = submission.review || { flags: [] };
+    const reviewMatch =
+      !state.reviewFilter ||
+      review.status === state.reviewFilter ||
+      review.flags.some((flag) => flag.type === state.reviewFilter || flag.key === state.reviewFilter);
+    return statusMatch && reviewMatch;
+  });
+
+  if (els.reviewTabs) {
+    els.reviewTabs.querySelectorAll("[data-review-filter]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.reviewFilter === state.reviewFilter);
+    });
+  }
 
   if (!submissions.length) {
     els.submissionList.innerHTML = '<div class="empty-state"><h2>No submissions</h2><p>Submitted intakes will appear here.</p></div>';
@@ -561,12 +544,23 @@ function renderSubmissions() {
     .map(
       (submission) => `
         <button class="submission-card ${submission.id === state.selectedSubmissionId ? "active" : ""}" data-submission-id="${submission.id}" type="button">
-          <strong>${escapeHtml(submission.patientName)}</strong>
+          <div class="submission-title-row">
+            <strong>${escapeHtml(submission.patientName)}</strong>
+            <span class="review-badge ${escapeHtml(submission.review?.status || "routine")}">${escapeHtml(submission.review?.label || "Routine")}</span>
+          </div>
           <span>${escapeHtml(submission.formName)}</span>
           <div class="template-meta">
             <span>${new Date(submission.createdAt).toLocaleString()}</span>
             <span class="status-badge">${escapeHtml(submission.status.replaceAll("-", " "))}</span>
           </div>
+          ${
+            submission.review?.flags?.length
+              ? `<div class="review-flag-list">${submission.review.flags
+                  .slice(0, 3)
+                  .map((flag) => `<span class="review-flag ${escapeHtml(flag.severity)}">${escapeHtml(flag.label)}</span>`)
+                  .join("")}</div>`
+              : ""
+          }
         </button>
       `
     )
@@ -579,18 +573,24 @@ async function renderSubmissionDetail(id) {
   renderSubmissions();
 
   const { submission } = await api(`/api/submissions/${encodeURIComponent(id)}`);
+  const enrichedSubmission = enrichSubmission(submission);
   const form = state.forms.find((item) => item.id === submission.formId);
   const fields = form ? form.sections.flatMap((section) => (section.fields || []).map((field) => ({ ...field, section: section.title }))) : [];
   const fieldMap = new Map(fields.map((field) => [field.id, field]));
 
   const rows = Object.entries(submission.answers)
+    .filter(([key]) => {
+      const field = fieldMap.get(key);
+      return !field || !isRepeatedDemographicField(field, field.section);
+    })
     .map(([key, value]) => {
       const field = fieldMap.get(key);
       const label = field ? field.label : key;
       const displayValue = Array.isArray(value) ? value.join(", ") : value === true ? "Yes" : value === false ? "No" : value || "Not provided";
+      const owner = field ? fieldOwner(field, field.section) : "patient";
       return `
         <div class="answer-row">
-          <strong>${escapeHtml(label)}</strong>
+          <strong>${escapeHtml(label)} <span class="field-owner ${escapeHtml(owner)}">${escapeHtml(owner)}</span></strong>
           <span>${escapeHtml(displayValue)}</span>
         </div>
       `;
@@ -610,6 +610,20 @@ async function renderSubmissionDetail(id) {
           .join("")}
       </select>
     </div>
+    <section class="review-panel ${escapeHtml(enrichedSubmission.review.status)}">
+      <div>
+        <p class="eyebrow">Review status</p>
+        <h3>${escapeHtml(enrichedSubmission.review.label)}</h3>
+      </div>
+      ${
+        enrichedSubmission.review.flags.length
+          ? `<div class="review-flag-list">${enrichedSubmission.review.flags
+              .map((flag) => `<span class="review-flag ${escapeHtml(flag.severity)}">${escapeHtml(flag.label)}</span>`)
+              .join("")}</div>`
+          : `<span class="review-flag low">No automatic flags</span>`
+      }
+    </section>
+    ${renderAsqSubmissionScoreTable(submission.formId, submission.answers)}
     <div class="answer-list">${rows}</div>
   `;
 
@@ -642,6 +656,69 @@ function renderTemplates() {
     .join("");
 }
 
+function renderStaff() {
+  if (!state.staffUsers.length) {
+    els.staffList.innerHTML = '<div class="empty-state compact-empty"><h2>No users yet</h2><p>Create the first staff account from the form.</p></div>';
+    return;
+  }
+
+  els.staffList.innerHTML = state.staffUsers
+    .map(
+      (user) => `
+        <article class="staff-card">
+          <div>
+            <strong>${escapeHtml(user.name || user.email)}</strong>
+            <span>${escapeHtml(user.email)}</span>
+          </div>
+          <div class="staff-card-meta">
+            <span class="status-badge">${escapeHtml(user.role)}</span>
+            <span>${escapeHtml(user.title || "No title")}</span>
+            <span>${escapeHtml(user.clinicLocation || "All locations")}</span>
+          </div>
+        </article>
+      `
+    )
+    .join("");
+}
+
+async function loadStaff() {
+  if (state.currentUser?.role !== "admin") {
+    state.staffUsers = [];
+    renderStaff();
+    return;
+  }
+  const payload = await api("/api/staff");
+  state.staffUsers = payload.staff;
+  renderStaff();
+}
+
+async function submitStaff(event) {
+  event.preventDefault();
+  els.staffMessage.textContent = "";
+  els.staffMessage.classList.remove("error");
+  const formData = new FormData(els.staffForm);
+
+  try {
+    const payload = await api("/api/staff", {
+      method: "POST",
+      body: JSON.stringify({
+        name: formData.get("name"),
+        email: formData.get("email"),
+        password: formData.get("password"),
+        role: formData.get("role"),
+        title: formData.get("title") || undefined,
+        clinicLocation: formData.get("clinicLocation") || undefined
+      })
+    });
+    els.staffMessage.textContent = `Created ${payload.user.role} account for ${payload.user.email}.`;
+    els.staffForm.reset();
+    await loadStaff();
+  } catch (error) {
+    els.staffMessage.classList.add("error");
+    els.staffMessage.textContent = error.message;
+  }
+}
+
 async function loadForms() {
   const payload = await api("/api/forms");
   state.forms = payload.forms;
@@ -663,7 +740,17 @@ async function loadSubmissions() {
     return;
   }
   const payload = await api("/api/submissions");
-  state.submissions = payload.submissions;
+  const detailed = await Promise.all(
+    payload.submissions.map(async (submission) => {
+      try {
+        const detail = await api(`/api/submissions/${encodeURIComponent(submission.id)}`);
+        return enrichSubmission({ ...submission, answers: detail.submission.answers || {} });
+      } catch {
+        return enrichSubmission(submission);
+      }
+    })
+  );
+  state.submissions = detailed;
   renderSubmissions();
 }
 
@@ -678,8 +765,10 @@ async function checkHealth() {
 
 async function refreshAll() {
   await checkHealth();
+  await loadBootstrapState();
   await loadForms();
   await loadSubmissions();
+  await loadStaff();
 }
 
 els.navButtons.forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
@@ -699,17 +788,23 @@ els.patientModeButton.addEventListener("click", () => {
 });
 els.logoutButton.addEventListener("click", () => {
   setAuthSession({ accessToken: "", user: null });
-  resetPatientFlow();
+  state.mode = "patient";
+  state.routingComplete = false;
+  state.showAllForms = false;
+  state.recommendedFormIds = [];
+  state.selectedFormId = null;
   applyMode();
+  showAuthDialog();
 });
 els.authForm.addEventListener("submit", (event) => {
   event.preventDefault();
   authenticate("login");
 });
 els.registerButton.addEventListener("click", () => authenticate("register"));
-els.authCancel.addEventListener("click", hideAuthDialog);
-els.authDialog.addEventListener("click", (event) => {
-  if (event.target === els.authDialog) hideAuthDialog();
+els.continuePatientButton.addEventListener("click", () => {
+  resetPatientFlow();
+  applyMode();
+  setView("welcome");
 });
 els.startOverButton.addEventListener("click", () => {
   resetPatientFlow();
@@ -748,9 +843,12 @@ els.formList.addEventListener("click", (event) => {
   renderFormList();
   renderSelectedForm();
 });
+els.intakeForm.addEventListener("change", syncAsqScores);
+els.intakeForm.addEventListener("input", syncAsqScores);
 els.intakeForm.addEventListener("submit", submitIntake);
 els.clearForm.addEventListener("click", () => {
   els.intakeForm.reset();
+  syncAsqScores();
   els.formMessage.textContent = "";
   els.formMessage.classList.remove("error");
 });
@@ -758,9 +856,26 @@ els.statusFilter.addEventListener("change", () => {
   state.statusFilter = els.statusFilter.value;
   renderSubmissions();
 });
+els.reviewTabs?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-review-filter]");
+  if (!button) return;
+  state.reviewFilter = button.dataset.reviewFilter;
+  renderSubmissions();
+});
 els.submissionList.addEventListener("click", (event) => {
   const card = event.target.closest("[data-submission-id]");
   if (card) renderSubmissionDetail(card.dataset.submissionId);
 });
+els.staffForm.addEventListener("submit", submitStaff);
 
-restoreAuthSession().then(() => refreshAll()).then(applyMode);
+restoreAuthSession()
+  .then(() => refreshAll())
+  .then(() => {
+    applyMode();
+    if (state.currentUser) {
+      setView("intake");
+    } else {
+      setView("login");
+    }
+  });
+

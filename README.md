@@ -29,13 +29,13 @@ Then open:
 http://localhost:5177
 ```
 
-Without `MONGODB_URI`, the backend uses local JSON files in `backend/data/` so the prototype still runs. With `MONGODB_URI`, staff users and submissions are saved in MongoDB.
+Without `MONGO_URI`, the backend uses local JSON files in `backend/data/` so the prototype still runs. With `MONGO_URI`, staff users and submissions are saved in MongoDB. `MONGODB_URI` also works as a local fallback alias.
 
 ## Environment
 
 Copy `.env.example` into your deployment environment and set:
 
-- `MONGODB_URI`: MongoDB Atlas connection string
+- `MONGO_URI`: MongoDB Atlas connection string
 - `MONGODB_DB`: database name, defaults to `pyam_intake`
 - `JWT_SECRET`: long random secret for staff login tokens
 - `CORS_ORIGINS`: comma-separated frontend URLs allowed to call the API
@@ -43,12 +43,34 @@ Copy `.env.example` into your deployment environment and set:
 
 ## Staff Login
 
-Use **Staff view**, then create the first staff account. Passwords are hashed before storage. This is good enough for the prototype, but production should add account invites, password reset, audit controls, and stronger role management.
+Use **Staff login**. If no users exist yet, the app shows **Create First Admin**. After the first admin exists, public registration closes and admins create additional staff/admin users from the **Staff** screen. Passwords are hashed before storage. This is good enough for the prototype, but production should add account invites, password reset, audit controls, and stronger role management.
+
+Roles:
+
+- `admin`: can review intakes, view templates, and create staff/admin users
+- `staff`: can review intakes and view templates
+
+## MongoDB Collections
+
+Initialize or update the MongoDB structure from your local `.env`:
+
+```powershell
+.\.venv\Scripts\python.exe backend\scripts\init_db.py
+```
+
+The app uses these collections:
+
+- `users`: staff login credentials, roles, active status, and password hashes
+- `staff_profiles`: staff display/profile data and permissions
+- `form_templates`: versioned intake form definitions seeded from `backend/data/form-templates.json`
+- `intake_forms`: submitted patient intake records and answers
+- `patients`: reusable patient contact/demographic records for the next phase
+- `audit_events`: cross-collection audit trail for future staff actions
 
 ## Deployment Plan
 
 1. Create MongoDB Atlas database and copy the connection string.
-2. Deploy the root `Dockerfile` to GCP Cloud Run with `MONGODB_URI`, `MONGODB_DB`, `JWT_SECRET`, and `CORS_ORIGINS`.
+2. Deploy the root `Dockerfile` to GCP Cloud Run with `MONGO_URI`, `MONGODB_DB`, `JWT_SECRET`, and `CORS_ORIGINS`.
 3. Deploy `frontend/` to Vercel with `PYAM_API_BASE_URL` set to the Cloud Run service URL.
 4. Create the first staff account through the app.
 5. Improve one intake form at a time in `backend/data/form-templates.json`, starting with the highest-priority clinic workflow.
@@ -62,7 +84,7 @@ gcloud run deploy pyam-intake-api `
   --source . `
   --region us-central1 `
   --allow-unauthenticated `
-  --set-env-vars MONGODB_URI="YOUR_MONGODB_URI",MONGODB_DB="pyam_intake",JWT_SECRET="YOUR_LONG_RANDOM_SECRET",CORS_ORIGINS="https://your-vercel-app.vercel.app"
+  --set-env-vars MONGO_URI="YOUR_MONGO_URI",MONGODB_DB="pyam_intake",JWT_SECRET="YOUR_LONG_RANDOM_SECRET",CORS_ORIGINS="https://your-vercel-app.vercel.app"
 ```
 
 After deploy, copy the Cloud Run service URL into Vercel as `PYAM_API_BASE_URL`.

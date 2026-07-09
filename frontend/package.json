@@ -3,8 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "node scripts/write-config.js",
-    "dev": "npx serve public -l 5177"
+    "build": "node scripts/write-config.js && vite build",
+    "dev": "node scripts/write-config.js && vite --host 127.0.0.1 --port 5178",
+    "smoke:routes": "node scripts/smoke-routes.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.1",
+    "vite": "^6.0.7"
   },
   "devDependencies": {
     "serve": "^14.2.4"

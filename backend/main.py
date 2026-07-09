@@ -17,16 +17,26 @@ from pydantic import BaseModel, EmailStr, Field
 from pymongo import ASCENDING, MongoClient, ReturnDocument
 from pymongo.collection import Collection
 
+from backend.db_schema import ensure_database_schema, seed_form_templates
+
 
 ROOT = Path(__file__).resolve().parents[1]
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env")
+except ImportError:
+    pass
+
 BACKEND_DIR = Path(__file__).resolve().parent
 DATA_DIR = BACKEND_DIR / "data"
-FRONTEND_PUBLIC_DIR = ROOT / "frontend" / "public"
+FRONTEND_DIST_DIR = ROOT / "frontend" / "dist"
+FRONTEND_PUBLIC_DIR = FRONTEND_DIST_DIR if FRONTEND_DIST_DIR.exists() else ROOT / "frontend" / "public"
 TEMPLATES_FILE = DATA_DIR / "form-templates.json"
 SUBMISSIONS_FILE = DATA_DIR / "submissions.json"
 USERS_FILE = DATA_DIR / "users.json"
 
-MONGODB_URI = os.getenv("MONGODB_URI")
+MONGO_URI = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI")
 MONGODB_DB = os.getenv("MONGODB_DB", "pyam_intake")
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me-for-production")
 JWT_ALGORITHM = "HS256"
@@ -37,7 +47,7 @@ CORS_ORIGINS = [
     if origin.strip()
 ]
 
-mongo_client: MongoClient | None = MongoClient(MONGODB_URI) if MONGODB_URI else None
+mongo_client: MongoClient | None = MongoClient(MONGO_URI) if MONGO_URI else None
 mongo_db = mongo_client[MONGODB_DB] if mongo_client is not None else None
 
 
@@ -60,8 +70,8 @@ app.add_middleware(
 def ensure_indexes() -> None:
     if mongo_db is None:
         return
-    users().create_index([("email", ASCENDING)], unique=True)
-    submissions().create_index([("createdAt", ASCENDING)])
+    ensure_database_schema(mongo_db)
+    seed_form_templates(mongo_db, read_json(TEMPLATES_FILE, []))
 
 
 @app.middleware("http")
@@ -82,6 +92,17 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class StaffCreateRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8)
+    name: str
+    role: str = "staff"
+    title: str | None = None
+    clinic_location: str | None = Field(default=None, alias="clinicLocation")
+
+    model_config = {"populate_by_name": True}
 
 
 class SubmissionCreate(BaseModel):
@@ -118,29 +139,53 @@ def users() -> Collection:
     return mongo_db["users"]
 
 
+def users_exist() -> bool:
+    if mongo_db is not None:
+        return users().estimated_document_count() > 0
+    return len(get_local_users()) > 0
+
+
 def submissions() -> Collection:
     if mongo_db is None:
         raise RuntimeError("MongoDB is not configured.")
-    return mongo_db["submissions"]
+    return mongo_db["intake_forms"]
+
+
+def staff_profiles() -> Collection:
+    if mongo_db is None:
+        raise RuntimeError("MongoDB is not configured.")
+    return mongo_db["staff_profiles"]
+
+
+def form_templates() -> Collection:
+    if mongo_db is None:
+        raise RuntimeError("MongoDB is not configured.")
+    return mongo_db["form_templates"]
 
 
 def public_user(user: dict[str, Any]) -> dict[str, Any]:
     return {
-        "id": str(user.get("_id") or user.get("id")),
+        "id": str(user.get("id") or user.get("_id")),
         "email": user["email"],
         "name": user.get("name") or user["email"].split("@")[0],
         "role": user.get("role", "staff"),
+        "isActive": user.get("isActive", True),
     }
 
 
 def normalize_document(document: dict[str, Any]) -> dict[str, Any]:
     item = dict(document)
     if "_id" in item:
-        item["id"] = str(item.pop("_id"))
+        item.setdefault("mongoId", str(item.pop("_id")))
     return item
 
 
 def get_templates() -> list[dict[str, Any]]:
+    if mongo_db is not None:
+        return [
+            normalize_document(template)
+            for template in form_templates().find({"status": "active"}).sort([("category", ASCENDING), ("name", ASCENDING)])
+        ]
     return read_json(TEMPLATES_FILE, [])
 
 
@@ -176,19 +221,49 @@ def find_user_by_id(user_id: str) -> dict[str, Any] | None:
     return next((item for item in get_local_users() if item.get("id") == user_id), None)
 
 
-def create_user(payload: RegisterRequest) -> dict[str, Any]:
+def permissions_for_role(role: str) -> list[str]:
+    permissions = ["forms:read", "intakes:read", "intakes:update"]
+    if role == "admin":
+        permissions.extend(["staff:read", "staff:create", "staff:update", "templates:manage"])
+    return permissions
+
+
+def create_user(
+    email: str,
+    password: str,
+    name: str | None,
+    role: str = "staff",
+    title: str | None = None,
+    clinic_location: str | None = None,
+) -> dict[str, Any]:
+    if role not in {"admin", "staff"}:
+        raise HTTPException(status_code=400, detail="Unsupported user role.")
+
     now = utc_now()
     user = {
         "id": str(uuid4()),
-        "email": payload.email.lower(),
-        "name": payload.name,
-        "role": "staff",
-        "passwordHash": bcrypt.hashpw(payload.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8"),
+        "email": email.lower(),
+        "name": name,
+        "role": role,
+        "isActive": True,
+        "passwordHash": bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8"),
         "createdAt": now,
         "updatedAt": now,
     }
     if mongo_db is not None:
-        users().insert_one(user)
+        users().insert_one(dict(user))
+        staff_profiles().insert_one(
+            {
+                "id": str(uuid4()),
+                "userId": user["id"],
+                "displayName": user.get("name") or user["email"].split("@")[0],
+                "title": title,
+                "clinicLocation": clinic_location,
+                "permissions": permissions_for_role(role),
+                "createdAt": now,
+                "updatedAt": now,
+            }
+        )
     else:
         items = get_local_users()
         items.append(user)
@@ -228,6 +303,12 @@ def get_optional_user(authorization: str | None = Header(default=None)) -> dict[
     if not authorization:
         return None
     return get_current_user(authorization)
+
+
+def require_admin(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    return user
 
 
 def flatten_template_fields(template: dict[str, Any]) -> list[dict[str, Any]]:
@@ -272,11 +353,18 @@ def health() -> dict[str, Any]:
     }
 
 
+@app.get("/api/auth/bootstrap")
+def bootstrap_status() -> dict[str, Any]:
+    return {"needsFirstAdmin": not users_exist()}
+
+
 @app.post("/api/auth/register", status_code=201)
 def register(payload: RegisterRequest) -> dict[str, Any]:
+    if users_exist():
+        raise HTTPException(status_code=403, detail="Public registration is closed. Ask an admin to create your account.")
     if find_user_by_email(payload.email):
         raise HTTPException(status_code=409, detail="An account already exists for this email.")
-    user = create_user(payload)
+    user = create_user(payload.email, payload.password, payload.name, role="admin", title="Administrator")
     return {"user": public_user(user), "accessToken": create_access_token(user)}
 
 
@@ -285,11 +373,58 @@ def login(payload: LoginRequest) -> dict[str, Any]:
     user = find_user_by_email(payload.email)
     if not user or not verify_password(payload.password, user["passwordHash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password.")
+    if not user.get("isActive", True):
+        raise HTTPException(status_code=403, detail="This account is inactive.")
+    if mongo_db is not None:
+        users().update_one({"id": user["id"]}, {"$set": {"lastLoginAt": utc_now()}})
     return {"user": public_user(user), "accessToken": create_access_token(user)}
 
 
 @app.get("/api/auth/me")
 def me(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    return {"user": public_user(user)}
+
+
+@app.get("/api/staff")
+def list_staff(admin: dict[str, Any] = Depends(require_admin)) -> dict[str, list[dict[str, Any]]]:
+    del admin
+    if mongo_db is None:
+        return {"staff": [public_user(user) for user in get_local_users()]}
+
+    profiles_by_user_id = {
+        profile["userId"]: normalize_document(profile)
+        for profile in staff_profiles().find()
+    }
+    staff = []
+    for user in users().find().sort([("role", ASCENDING), ("email", ASCENDING)]):
+        item = public_user(normalize_document(user))
+        profile = profiles_by_user_id.get(item["id"], {})
+        item["title"] = profile.get("title")
+        item["clinicLocation"] = profile.get("clinicLocation")
+        item["permissions"] = profile.get("permissions", permissions_for_role(item["role"]))
+        staff.append(item)
+    return {"staff": staff}
+
+
+@app.post("/api/staff", status_code=201)
+def create_staff(
+    payload: StaffCreateRequest,
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    if payload.role not in {"admin", "staff"}:
+        raise HTTPException(status_code=400, detail="Unsupported user role.")
+    if find_user_by_email(payload.email):
+        raise HTTPException(status_code=409, detail="An account already exists for this email.")
+
+    user = create_user(
+        payload.email,
+        payload.password,
+        payload.name,
+        role=payload.role,
+        title=payload.title,
+        clinic_location=payload.clinic_location,
+    )
     return {"user": public_user(user)}
 
 
@@ -365,6 +500,7 @@ def create_submission(
     submission = {
         "id": str(uuid4()),
         "formId": template["id"],
+        "formTemplateVersion": template.get("version", 1),
         "formName": template["name"],
         "category": template["category"],
         "patientName": patient_name_from_answers(payload.answers),
