@@ -85,6 +85,26 @@ export function isStaffOnlyField(field) {
   return false;
 }
 
+export function isCalculatedStaffField(field) {
+  if (!field) return false;
+
+  const id = String(field.id || "").toLowerCase();
+  const label = String(field.label || "").toLowerCase();
+
+  return (
+    id.includes("total_score") ||
+    id.endsWith("_score") ||
+    id.endsWith("_total") ||
+    id.includes("_total_") ||
+    id.includes("_zone") ||
+    id.includes("cutoff_met") ||
+    id === "crafft_part_a_yes_count" ||
+    id === "crafft_part_b_yes_count" ||
+    label.includes("total score") ||
+    label.includes("score zone")
+  );
+}
+
 export function fieldOwner(field, sectionTitle) {
   if (isRepeatedDemographicField(field, sectionTitle)) return "autofilled";
   if (isStaffOnlyField(field)) return "staff";

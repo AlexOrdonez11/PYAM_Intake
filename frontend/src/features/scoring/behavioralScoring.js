@@ -13,8 +13,102 @@ function optionSum(answers, prefix, keys) {
   return keys.reduce((total, key) => total + optionScore(answers[`${prefix}_${key}`]), 0);
 }
 
+const EPDS_LEGACY_KEYS = [
+  "epds_laugh",
+  "epds_enjoyment",
+  "epds_blame",
+  "epds_anxious",
+  "epds_scared",
+  "epds_coping",
+  "epds_sleeping",
+  "epds_sad",
+  "epds_crying",
+  "epds_self_harm"
+];
+
+function epdsScoreFor(index, value) {
+  if (!value) return null;
+  const normalized = String(value);
+  const scoring = {
+    1: [
+      ["As much as", 0],
+      ["Not quite so much", 1],
+      ["Definitely not so much", 2],
+      ["Not at all", 3]
+    ],
+    2: [
+      ["As much as", 0],
+      ["Rather less", 1],
+      ["Definitely less", 2],
+      ["Hardly at all", 3]
+    ],
+    3: [
+      ["Yes, most of the time", 3],
+      ["Yes, some of the time", 2],
+      ["Not very often", 1],
+      ["No, never", 0]
+    ],
+    4: [
+      ["No, not at all", 0],
+      ["Hardly ever", 1],
+      ["Yes, sometimes", 2],
+      ["Yes, very often", 3]
+    ],
+    5: [
+      ["Yes, quite a lot", 3],
+      ["Yes, sometimes", 2],
+      ["No, not much", 1],
+      ["No, not at all", 0]
+    ],
+    6: [
+      ["Yes, most of the time", 3],
+      ["Yes, sometimes", 2],
+      ["No, most of the time", 1],
+      ["No, I have been coping", 0]
+    ],
+    7: [
+      ["Yes, most of the time", 3],
+      ["Yes, sometimes", 2],
+      ["Not very often", 1],
+      ["No, not at all", 0]
+    ],
+    8: [
+      ["Yes, most of the time", 3],
+      ["Yes, quite often", 2],
+      ["Not very often", 1],
+      ["No, not at all", 0]
+    ],
+    9: [
+      ["Yes, most of the time", 3],
+      ["Yes, quite often", 2],
+      ["Only occasionally", 1],
+      ["No, never", 0]
+    ],
+    10: [
+      ["Yes, quite often", 3],
+      ["Sometimes", 2],
+      ["Hardly ever", 1],
+      ["Never", 0]
+    ]
+  };
+  const match = scoring[index]?.find(([label]) => normalized.startsWith(label));
+  return match ? match[1] : optionScore(value);
+}
+
+export function calculateEpdsTotal(answers) {
+  const numberedKeys = Array.from({ length: 10 }, (_, index) => `epds_${index + 1}`);
+  const keys = numberedKeys.some((key) => answers[key]) ? numberedKeys : EPDS_LEGACY_KEYS;
+  const scores = keys.map((key, index) => epdsScoreFor(index + 1, answers[key]));
+  return scores.some((score) => score !== null) ? scores.reduce((total, score) => total + (score || 0), 0) : null;
+}
+
 export function calculateBehavioralScores(answers) {
   const next = {};
+
+  const epds = calculateEpdsTotal(answers);
+  if (epds !== null) {
+    next.epds_total_score = String(epds);
+  }
 
   const phqaKeys = [
     "1_depressed",

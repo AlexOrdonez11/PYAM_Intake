@@ -56,7 +56,7 @@ export function AsqScoreTable({ formId, answers = {}, submitted = false }) {
             <p>Marker moves as answers update. Ranges follow the cutoff table for this visit.</p>
           </div>
           <div className="asq-legend-key">
-            <span><i className="below" /> Below cutoff</span>
+            <span><i className="below" /> Delayed</span>
             <span><i className="monitor" /> Monitor</span>
             <span><i className="above" /> On schedule</span>
           </div>

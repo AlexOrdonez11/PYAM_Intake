@@ -960,14 +960,37 @@ body.patient-mode[data-view="intake"] .intake-brand-row {
 }
 
 .form-section {
-  padding: 22px 0;
-  border-bottom: 1px solid var(--line);
+  position: relative;
+  padding: 30px 0 34px;
+  border-top: 2px solid #c5d6e8;
+}
+
+.form-section:first-of-type {
+  margin-top: 24px;
+}
+
+.form-section + .form-section {
+  margin-top: 10px;
 }
 
 .form-section h3 {
-  margin: 0 0 16px;
-  font-size: 1.15rem;
-  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 22px;
+  padding-bottom: 8px;
+  border-bottom: 4px solid #2f6da3;
+  color: #102844;
+  font-size: 1.38rem;
+  line-height: 1.18;
+}
+
+.form-section h3::before {
+  content: "";
+  width: 8px;
+  height: 28px;
+  margin-right: 12px;
+  border-radius: 999px;
+  background: #2f6da3;
 }
 
 .field-grid {
@@ -1361,6 +1384,22 @@ body.patient-mode[data-view="intake"] .intake-brand-row {
 
 .field.full {
   grid-column: 1 / -1;
+}
+
+.field[data-readonly="true"] .field-control,
+.field[data-readonly="true"] input:disabled,
+.field[data-readonly="true"] select:disabled {
+  color: #42556d;
+  background: #eef4fb;
+  border-color: #cfdded;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.field-readonly-note {
+  color: #627891;
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .field label,
@@ -1795,6 +1834,19 @@ textarea.field-control {
   .field-grid,
   .answer-row {
     grid-template-columns: 1fr;
+  }
+
+  .form-section {
+    padding: 26px 0 30px;
+  }
+
+  .form-section h3 {
+    font-size: 1.2rem;
+  }
+
+  .form-section h3::before {
+    height: 24px;
+    margin-right: 10px;
   }
 
   .asq-legend-head,

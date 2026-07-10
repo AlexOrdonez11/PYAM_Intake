@@ -13,7 +13,7 @@ export function getAsqAnswerScore(value) {
 
 export function getAsqZone(area, total) {
   if (total === null) return { key: "incomplete", label: "Incomplete", value: "" };
-  if (total <= area.zones.belowMax) return { key: "below", label: "Below cutoff", value: "Below cutoff" };
+  if (total <= area.zones.belowMax) return { key: "below", label: "Delayed", value: "Delayed" };
   if (total <= area.zones.monitorMax) return { key: "monitor", label: "Close to cutoff", value: "Close to cutoff" };
   return { key: "above", label: "On schedule", value: "Above cutoff" };
 }

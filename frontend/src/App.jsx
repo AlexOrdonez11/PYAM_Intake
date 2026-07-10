@@ -4,8 +4,7 @@ import { api, getStoredToken, storeToken } from "./api/client";
 import { AppShell } from "./components/layout/AppShell";
 import { buildSubmissionAnswers } from "./features/forms/FormRenderer";
 import { demographicAutofillValue, isRepeatedDemographicField } from "./features/forms/fieldMeta";
-import { calculateAsqScores } from "./features/scoring/asqScoring";
-import { calculateBehavioralScores } from "./features/scoring/behavioralScoring";
+import { addCalculatedScores } from "./features/scoring/calculatedScores";
 import { enrichSubmission } from "./features/submissions/review";
 import { IntakePage } from "./pages/IntakePage";
 import { LoginPage } from "./pages/LoginPage";
@@ -24,17 +23,6 @@ function initialAnswersForForm(form) {
     }
   }
   return answers;
-}
-
-function addCalculatedScores(formId, answers) {
-  const next = { ...answers };
-  for (const score of calculateAsqScores(formId, answers)) {
-    next[score.totalFieldId] = score.total === null ? "" : String(score.total);
-    next[score.summaryFieldId] = score.total === null ? "" : String(score.total);
-    next[score.zoneFieldId] = score.zone.value;
-  }
-  Object.assign(next, calculateBehavioralScores(answers));
-  return next;
 }
 
 function visibleViewFor(view, { mode, user, routingComplete, showAllForms }) {

@@ -1,4 +1,5 @@
 import { calculateAsqScores } from "../scoring/asqScoring";
+import { calculateEpdsTotal } from "../scoring/behavioralScoring";
 
 export function reviewFlagsForSubmission(submission) {
   const answers = submission.answers || {};
@@ -9,7 +10,7 @@ export function reviewFlagsForSubmission(submission) {
   const monitorCount = asqScores.filter((score) => score.zone.key === "monitor").length;
   const incompleteCount = asqScores.filter((score) => score.zone.key === "incomplete").length;
 
-  if (belowCount) flags.push({ key: "asq-below", type: "asq", severity: "high", label: `${belowCount} ASQ below cutoff` });
+  if (belowCount) flags.push({ key: "asq-below", type: "asq", severity: "high", label: `${belowCount} ASQ delayed` });
   if (monitorCount) flags.push({ key: "asq-monitor", type: "asq", severity: "medium", label: `${monitorCount} ASQ monitor` });
   if (incompleteCount) flags.push({ key: "asq-incomplete", type: "asq", severity: "low", label: "ASQ incomplete" });
 
@@ -18,6 +19,16 @@ export function reviewFlagsForSubmission(submission) {
     return value && value !== "No" && !value.startsWith("Not at all");
   });
   if (selfHarm) flags.push({ key: "self-harm", type: "behavioral", severity: "high", label: "Self-harm review" });
+
+  const epdsTotal = calculateEpdsTotal(answers);
+  if (epdsTotal !== null && epdsTotal >= 10) {
+    flags.push({ key: "epds", type: "behavioral", severity: "medium", label: "EPDS elevated" });
+  }
+  const epdsSelfHarm = ["epds_10", "epds_self_harm"].some((key) => {
+    const value = String(answers[key] || "");
+    return value && !["Never", "No, never", "No, not at all"].some((safeValue) => value.startsWith(safeValue));
+  });
+  if (epdsSelfHarm) flags.push({ key: "epds-self-harm", type: "behavioral", severity: "high", label: "EPDS self-harm review" });
 
   const phqaModerate = Object.entries(answers).some(([key, value]) => key.startsWith("phqa_") && String(value).includes("(2)"));
   if (phqaModerate) flags.push({ key: "phqa", type: "behavioral", severity: "medium", label: "PHQ-A symptom review" });

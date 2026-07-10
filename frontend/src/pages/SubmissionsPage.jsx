@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { FormField } from "../components/fields/FormField";
-import { fieldOwner, isRepeatedDemographicField, isStaffOnlyField } from "../features/forms/fieldMeta";
+import { fieldOwner, isCalculatedStaffField, isRepeatedDemographicField, isStaffOnlyField } from "../features/forms/fieldMeta";
 import { AsqScoreTable } from "../features/scoring/AsqScoreTable";
+import { addCalculatedScores } from "../features/scoring/calculatedScores";
 
 function displayAnswer(value) {
   if (Array.isArray(value)) return value.join(", ");
@@ -27,6 +28,7 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
   });
 
   const selectedForm = selectedSubmission ? forms.find((form) => form.id === selectedSubmission.formId) : null;
+  const selectedAnswers = selectedSubmission ? addCalculatedScores(selectedSubmission.formId, selectedSubmission.answers || {}) : {};
   const staffFields = (selectedForm?.sections || []).flatMap((section) =>
     (section.fields || [])
       .filter((field) => !isRepeatedDemographicField(field, section.title) && isStaffOnlyField(field))
@@ -39,9 +41,9 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
   );
 
   useEffect(() => {
-    setStaffDraft(selectedSubmission?.answers || {});
+    setStaffDraft(selectedAnswers);
     setStaffMessage("");
-  }, [selectedSubmission?.id]);
+  }, [selectedSubmission]);
 
   async function saveStaffReview() {
     if (!selectedSubmission) return;
@@ -148,7 +150,7 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
                     </div>
                   ) : <span className="review-flag low">No automatic flags</span>}
                 </section>
-                <AsqScoreTable formId={selectedSubmission.formId} answers={selectedSubmission.answers || {}} submitted />
+                <AsqScoreTable formId={selectedSubmission.formId} answers={selectedAnswers} submitted />
                 {staffFields.length ? (
                   <section className="review-edit-panel">
                     <div className="detail-header compact-detail-header">
@@ -166,6 +168,7 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
                           field={field}
                           key={field.id}
                           value={staffDraft[field.id]}
+                          readOnly={isCalculatedStaffField(field)}
                           onChange={(fieldId, value) => setStaffDraft((current) => ({ ...current, [fieldId]: value }))}
                         />
                       ))}
@@ -174,7 +177,7 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
                   </section>
                 ) : null}
                 <div className="answer-list">
-                  {Object.entries(selectedSubmission.answers || {}).filter(([key]) => {
+                  {Object.entries(selectedAnswers).filter(([key]) => {
                     const field = fieldMap.get(key);
                     return !field || !isRepeatedDemographicField(field, field.section);
                   }).map(([key, value]) => {

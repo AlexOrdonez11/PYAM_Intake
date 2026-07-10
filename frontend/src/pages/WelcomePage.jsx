@@ -130,8 +130,8 @@ export function WelcomePage({ onRoute, onShowAllForms, onStartOver, isStaff }) {
               <div className="choice-group compact">
                 {[
                   ["adhd", "ADHD evaluation or follow up"],
-                  ["anxiety", "Anxiety concerns"],
-                  ["teacher", "Teacher form needed"],
+                  ["anxiety", "Behavioral concerns"],
+                  ["teacher", "School form"],
                   ["asthma", "Asthma control test"]
                 ].map(([value, label]) => (
                   <label className="choice-option" key={value}>
