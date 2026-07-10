@@ -229,7 +229,7 @@ def main() -> int:
     client.admin.command("ping")
     db = client[db_name]
     ensure_database_schema(db)
-    seed_form_templates(db, templates)
+    seed_form_templates(db, templates, overwrite_existing=True)
 
     now = utc_now()
     for staff in STAFF_USERS:

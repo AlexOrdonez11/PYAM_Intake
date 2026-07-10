@@ -207,7 +207,7 @@ def ensure_database_schema(db: Database) -> None:
     ensure_indexes(db)
 
 
-def seed_form_templates(db: Database, templates: list[dict[str, Any]]) -> int:
+def seed_form_templates(db: Database, templates: list[dict[str, Any]], overwrite_existing: bool = False) -> int:
     now = utc_now()
     changed = 0
     for template in templates:
@@ -223,6 +223,11 @@ def seed_form_templates(db: Database, templates: list[dict[str, Any]]) -> int:
                 {"id": document["id"], "version": {"$ne": document["version"]}, "status": "active"},
                 {"$set": {"status": "archived", "updatedAt": now}},
             )
+
+        existing = db["form_templates"].find_one({"id": document["id"], "version": document["version"]})
+        if existing and not overwrite_existing:
+            continue
+
         result = db["form_templates"].update_one(
             {"id": document["id"], "version": document["version"]},
             {"$set": document},

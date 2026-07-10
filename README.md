@@ -68,6 +68,8 @@ The app uses these collections:
 - `patients`: reusable patient contact/demographic records for the next phase
 - `audit_events`: cross-collection audit trail for future staff actions
 
+Backend startup creates missing form templates but does not overwrite an existing template with the same `id` and `version`. Running `backend\scripts\init_db.py` is the explicit sync command and will overwrite matching templates from `backend/data/form-templates.json`.
+
 ## Deployment Plan
 
 1. Create MongoDB Atlas database and copy the connection string.

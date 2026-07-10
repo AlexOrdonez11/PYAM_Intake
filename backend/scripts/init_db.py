@@ -32,7 +32,7 @@ def main() -> int:
     db = client[db_name]
 
     ensure_database_schema(db)
-    changed_templates = seed_form_templates(db, templates)
+    changed_templates = seed_form_templates(db, templates, overwrite_existing=True)
 
     print(f"Connected to MongoDB database: {db_name}")
     print("Collections ready:")
