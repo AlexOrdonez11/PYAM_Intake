@@ -2008,6 +2008,142 @@ textarea.field-control {
   gap: 12px;
 }
 
+.template-admin-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.template-admin-list {
+  display: grid;
+  gap: 10px;
+  max-height: calc(100vh - 230px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.template-card.compact {
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+
+.template-card.compact.active {
+  border-color: var(--brand-blue);
+  background: #f2f7ff;
+  box-shadow: 0 0 0 3px rgba(58, 112, 191, 0.12);
+}
+
+.template-card small {
+  color: var(--muted);
+  display: block;
+  font-weight: 700;
+  margin-top: 8px;
+}
+
+.template-picker {
+  max-width: 360px;
+}
+
+.template-editor {
+  display: grid;
+  gap: 18px;
+}
+
+.template-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  gap: 14px;
+}
+
+.template-editor-grid .field span,
+.template-field-topline label span,
+.template-note-editor span {
+  color: var(--muted);
+  display: block;
+  font-size: 13px;
+  font-weight: 900;
+  margin-bottom: 6px;
+}
+
+.template-json-editor,
+.template-section-editor,
+.template-field-editor,
+.template-note-editor {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.template-json-editor {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.template-json-editor textarea {
+  min-height: 360px;
+  font-family: Consolas, monospace;
+  font-size: 13px;
+}
+
+.template-section-list {
+  display: grid;
+  gap: 16px;
+}
+
+.template-section-editor {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.template-section-header {
+  align-items: center;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+}
+
+.section-title-input {
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.template-note-editor {
+  display: grid;
+  grid-template-columns: minmax(160px, 240px) 1fr auto;
+  gap: 10px;
+  padding: 12px;
+  background: #f8fbff;
+}
+
+.template-field-list {
+  display: grid;
+  gap: 12px;
+}
+
+.template-field-editor {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: #fbfdff;
+}
+
+.template-field-topline {
+  display: grid;
+  grid-template-columns: 1.4fr minmax(180px, 0.8fr) minmax(140px, 0.5fr);
+  gap: 12px;
+}
+
+.template-field-flags {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .template-meta {
   display: flex;
   justify-content: space-between;
@@ -2051,8 +2187,20 @@ textarea.field-control {
 
   .workspace,
   .staff-layout,
-  .submission-layout {
+  .submission-layout,
+  .template-admin-layout,
+  .template-section-header,
+  .template-note-editor,
+  .template-field-topline {
     grid-template-columns: 1fr;
+  }
+
+  .template-editor-grid {
+    grid-template-columns: repeat(2, minmax(160px, 1fr));
+  }
+
+  .template-admin-list {
+    max-height: none;
   }
 
   .form-picker-panel,
@@ -2091,6 +2239,10 @@ textarea.field-control {
   .detail-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .template-editor-grid {
+    grid-template-columns: 1fr;
   }
 
   .form-heading-actions {

@@ -49,6 +49,40 @@ const VIEW_PATHS = {
 
 const PATH_VIEWS = Object.fromEntries(Object.entries(VIEW_PATHS).map(([view, path]) => [path, view]));
 
+function SubmissionDetailRoute({
+  authToken,
+  submissions,
+  submissionsLoading,
+  submissionDetailLoading,
+  selectedSubmission,
+  forms,
+  onSelect,
+  onStatusChange,
+  onBack
+}) {
+  const { submissionId } = useParams();
+
+  useEffect(() => {
+    if (!authToken || !submissionId) return;
+    if (selectedSubmission?.id === submissionId && selectedSubmission?.answers) return;
+    onSelect(submissionId);
+  }, [authToken, submissionId, selectedSubmission?.id, selectedSubmission?.answers, onSelect]);
+
+  return (
+    <SubmissionsPage
+      submissions={submissions}
+      isLoading={submissionsLoading}
+      detailLoading={submissionDetailLoading}
+      selectedSubmission={selectedSubmission}
+      forms={forms}
+      onSelect={onSelect}
+      onStatusChange={onStatusChange}
+      detailOnly
+      onBack={onBack}
+    />
+  );
+}
+
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -353,7 +387,7 @@ export default function App() {
     }
   }
 
-  async function selectSubmission(id) {
+  const selectSubmission = useCallback(async (id) => {
     setSubmissionDetailLoading(true);
     try {
       const summary = submissions.find((item) => item.id === id);
@@ -363,7 +397,7 @@ export default function App() {
     } finally {
       setSubmissionDetailLoading(false);
     }
-  }
+  }, [authToken, location.pathname, navigate, submissions]);
 
   async function updateSubmissionStatus(id, status, nextAnswers) {
     const body = { status };
@@ -399,6 +433,15 @@ export default function App() {
       setStaffError(true);
       setStaffMessage(error.message);
     }
+  }
+
+  async function saveTemplate(template) {
+    const payload = await api(`/api/forms/${encodeURIComponent(template.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ template })
+    }, authToken);
+    setForms((current) => current.map((form) => (form.id === payload.form.id ? payload.form : form)));
+    return payload.form;
   }
 
   const loginPage = (
@@ -440,29 +483,6 @@ export default function App() {
     />
   );
 
-  function SubmissionDetailRoute() {
-    const { submissionId } = useParams();
-
-    useEffect(() => {
-      if (!authToken || !submissionId) return;
-      selectSubmission(submissionId);
-    }, [authToken, submissionId]);
-
-    return (
-      <SubmissionsPage
-        submissions={submissions}
-        isLoading={submissionsLoading}
-        detailLoading={submissionDetailLoading}
-        selectedSubmission={selectedSubmission}
-        forms={forms}
-        onSelect={selectSubmission}
-        onStatusChange={updateSubmissionStatus}
-        detailOnly
-        onBack={() => navigateToView("submissions")}
-      />
-    );
-  }
-
   const submissionsPage = authToken ? (
     <SubmissionsPage
       submissions={submissions}
@@ -475,7 +495,7 @@ export default function App() {
     />
   ) : authReady ? <Navigate to="/login" replace /> : <div className="empty-state"><h2>Loading</h2><p>Checking your session.</p></div>;
 
-  const templatesPage = authToken ? <TemplatesPage forms={forms} /> : authReady ? <Navigate to="/login" replace /> : <div className="empty-state"><h2>Loading</h2><p>Checking your session.</p></div>;
+  const templatesPage = authToken ? <TemplatesPage forms={forms} user={currentUser} onSaveTemplate={saveTemplate} /> : authReady ? <Navigate to="/login" replace /> : <div className="empty-state"><h2>Loading</h2><p>Checking your session.</p></div>;
   const staffPage = !authReady
     ? <div className="empty-state"><h2>Loading</h2><p>Checking your session.</p></div>
     : currentUser?.role === "admin"
@@ -524,7 +544,19 @@ export default function App() {
         <Route path="/start" element={IS_STAFF_APP ? <Navigate to={authToken ? "/submissions" : "/login"} replace /> : welcomePage} />
         <Route path="/intake" element={guardedIntakePage} />
         <Route path="/submissions" element={IS_PATIENT_APP ? <Navigate to="/start" replace /> : submissionsPage} />
-        <Route path="/submissions/:submissionId" element={IS_PATIENT_APP ? <Navigate to="/start" replace /> : authToken ? <SubmissionDetailRoute /> : <Navigate to="/login" replace />} />
+        <Route path="/submissions/:submissionId" element={IS_PATIENT_APP ? <Navigate to="/start" replace /> : authToken ? (
+          <SubmissionDetailRoute
+            authToken={authToken}
+            submissions={submissions}
+            submissionsLoading={submissionsLoading}
+            submissionDetailLoading={submissionDetailLoading}
+            selectedSubmission={selectedSubmission}
+            forms={forms}
+            onSelect={selectSubmission}
+            onStatusChange={updateSubmissionStatus}
+            onBack={() => navigateToView("submissions")}
+          />
+        ) : <Navigate to="/login" replace />} />
         <Route path="/templates" element={IS_PATIENT_APP ? <Navigate to="/start" replace /> : templatesPage} />
         <Route path="/staff" element={IS_PATIENT_APP ? <Navigate to="/start" replace /> : staffPage} />
         <Route path="*" element={<Navigate to={IS_STAFF_APP ? (authToken ? "/submissions" : "/login") : "/start"} replace />} />

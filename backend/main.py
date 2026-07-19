@@ -128,6 +128,10 @@ class SubmissionUpdate(BaseModel):
     answers: dict[str, Any] | None = None
 
 
+class FormTemplateUpdate(BaseModel):
+    template: dict[str, Any]
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -395,6 +399,35 @@ def validate_submission(template: dict[str, Any], answers: dict[str, Any]) -> li
     return errors
 
 
+def validate_form_template(template: dict[str, Any]) -> dict[str, Any]:
+    required = ["id", "name", "category", "sections"]
+    missing = [key for key in required if not template.get(key)]
+    if missing:
+        raise HTTPException(status_code=422, detail=f"Template is missing: {', '.join(missing)}.")
+    if not isinstance(template.get("sections"), list):
+        raise HTTPException(status_code=422, detail="Template sections must be a list.")
+    for section_index, section in enumerate(template["sections"], start=1):
+        if not section.get("title"):
+            raise HTTPException(status_code=422, detail=f"Section {section_index} needs a title.")
+        fields = section.get("fields", [])
+        content = section.get("content", [])
+        if not isinstance(fields, list) or not isinstance(content, list):
+            raise HTTPException(status_code=422, detail=f"Section {section_index} fields and content must be lists.")
+        for field_index, field in enumerate(fields, start=1):
+            if not field.get("id") or not field.get("label") or not field.get("type"):
+                raise HTTPException(status_code=422, detail=f"Field {field_index} in section {section_index} needs id, label, and type.")
+            if field.get("type") in {"radio", "select", "multicheck", "scale"} and not isinstance(field.get("options", []), list):
+                raise HTTPException(status_code=422, detail=f"Options for field {field.get('id')} must be a list.")
+    now = utc_now()
+    return {
+        **template,
+        "version": int(template.get("version", 1)),
+        "status": template.get("status", "active"),
+        "updatedAt": now,
+        "createdAt": template.get("createdAt", now),
+    }
+
+
 def patient_name_from_answers(answers: dict[str, Any]) -> str:
     explicit_name = answers.get("patient_name") or answers.get("child_name")
     if explicit_name:
@@ -501,6 +534,51 @@ def get_form(form_id: str) -> dict[str, dict[str, Any]]:
     if not form:
         raise HTTPException(status_code=404, detail="Form template not found.")
     return {"form": form}
+
+
+@app.patch("/api/forms/{form_id}")
+def update_form_template(
+    form_id: str,
+    payload: FormTemplateUpdate,
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, dict[str, Any]]:
+    template = validate_form_template(payload.template)
+    if template["id"] != form_id:
+        raise HTTPException(status_code=400, detail="Template id cannot be changed from this endpoint.")
+
+    now = utc_now()
+    actor = audit_actor(admin)
+    event = audit_event(
+        "form_template_updated",
+        actor,
+        form_id,
+        metadata={
+            "formName": template["name"],
+            "version": template["version"],
+            "sectionCount": len(template.get("sections", [])),
+            "fieldCount": sum(len(section.get("fields", [])) for section in template.get("sections", [])),
+        },
+    )
+    event["at"] = now
+    template["audit"] = [*(template.get("audit") or []), event]
+
+    if mongo_db is not None:
+        result = form_templates().find_one_and_update(
+            {"id": form_id, "version": template["version"]},
+            {"$set": template},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        save_audit_event(event)
+        return {"form": normalize_document(result)}
+
+    templates = read_json(TEMPLATES_FILE, [])
+    index = next((i for i, item in enumerate(templates) if item.get("id") == form_id), -1)
+    if index == -1:
+        raise HTTPException(status_code=404, detail="Form template not found.")
+    templates[index] = template
+    write_json(TEMPLATES_FILE, templates)
+    return {"form": template}
 
 
 @app.get("/api/submissions")
