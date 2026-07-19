@@ -97,6 +97,10 @@ export function isCalculatedStaffField(field) {
     id.endsWith("_total") ||
     id.includes("_total_") ||
     id.includes("_zone") ||
+    id.endsWith("_control_status") ||
+    id.endsWith("_impairment_present") ||
+    id.endsWith("_screen_result") ||
+    id.endsWith("_count") ||
     id.includes("cutoff_met") ||
     id === "crafft_part_a_yes_count" ||
     id === "crafft_part_b_yes_count" ||

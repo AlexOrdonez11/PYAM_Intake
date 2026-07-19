@@ -227,6 +227,61 @@ ASQ_2_MONTH_SCORE_CONFIG["18-months-visit"] = buildAsqScoreConfig(
     personal_social: { belowMax: 25, monitorMax: 35 }
   }
 );
+ASQ_2_MONTH_SCORE_CONFIG["20-months-visit"] = buildAsqScoreConfig(
+  "asq20",
+  { communication: 20.5, gross_motor: 39.89, fine_motor: 36.05, problem_solving: 28.84, personal_social: 33.36 },
+  {
+    communication: { belowMax: 20, monitorMax: 35 },
+    gross_motor: { belowMax: 35, monitorMax: 50 },
+    fine_motor: { belowMax: 35, monitorMax: 45 },
+    problem_solving: { belowMax: 25, monitorMax: 40 },
+    personal_social: { belowMax: 30, monitorMax: 45 }
+  }
+);
+ASQ_2_MONTH_SCORE_CONFIG["22-months-visit"] = buildAsqScoreConfig(
+  "asq22",
+  { communication: 13.04, gross_motor: 27.75, fine_motor: 29.61, problem_solving: 29.3, personal_social: 30.07 },
+  {
+    communication: { belowMax: 10, monitorMax: 25 },
+    gross_motor: { belowMax: 25, monitorMax: 40 },
+    fine_motor: { belowMax: 25, monitorMax: 40 },
+    problem_solving: { belowMax: 25, monitorMax: 40 },
+    personal_social: { belowMax: 30, monitorMax: 40 }
+  }
+);
+ASQ_2_MONTH_SCORE_CONFIG["27-months-visit"] = buildAsqScoreConfig(
+  "asq27",
+  { communication: 24.02, gross_motor: 28.01, fine_motor: 18.42, problem_solving: 27.62, personal_social: 25.31 },
+  {
+    communication: { belowMax: 20, monitorMax: 35 },
+    gross_motor: { belowMax: 25, monitorMax: 40 },
+    fine_motor: { belowMax: 15, monitorMax: 30 },
+    problem_solving: { belowMax: 25, monitorMax: 40 },
+    personal_social: { belowMax: 25, monitorMax: 35 }
+  }
+);
+ASQ_2_MONTH_SCORE_CONFIG["30-months-visit"] = buildAsqScoreConfig(
+  "asq30",
+  { communication: 33.3, gross_motor: 36.14, fine_motor: 19.25, problem_solving: 27.08, personal_social: 32.01 },
+  {
+    communication: { belowMax: 30, monitorMax: 45 },
+    gross_motor: { belowMax: 35, monitorMax: 45 },
+    fine_motor: { belowMax: 15, monitorMax: 30 },
+    problem_solving: { belowMax: 25, monitorMax: 40 },
+    personal_social: { belowMax: 30, monitorMax: 45 }
+  }
+);
+ASQ_2_MONTH_SCORE_CONFIG["33-months-visit"] = buildAsqScoreConfig(
+  "asq33",
+  { communication: 25.36, gross_motor: 34.8, fine_motor: 12.28, problem_solving: 26.92, personal_social: 28.96 },
+  {
+    communication: { belowMax: 25, monitorMax: 40 },
+    gross_motor: { belowMax: 30, monitorMax: 45 },
+    fine_motor: { belowMax: 10, monitorMax: 25 },
+    problem_solving: { belowMax: 25, monitorMax: 40 },
+    personal_social: { belowMax: 25, monitorMax: 40 }
+  }
+);
 ASQ_2_MONTH_SCORE_CONFIG["3-year-visit"] = buildAsqScoreConfig(
   "asq36",
   { communication: 30.99, gross_motor: 36.99, fine_motor: 18.07, problem_solving: 30.29, personal_social: 35.33 },
@@ -238,6 +293,17 @@ ASQ_2_MONTH_SCORE_CONFIG["3-year-visit"] = buildAsqScoreConfig(
     personal_social: { belowMax: 35, monitorMax: 45 }
   }
 );
+ASQ_2_MONTH_SCORE_CONFIG["42-months-visit"] = buildAsqScoreConfig(
+  "asq42",
+  { communication: 27.06, gross_motor: 36.27, fine_motor: 19.82, problem_solving: 28.11, personal_social: 31.12 },
+  {
+    communication: { belowMax: 25, monitorMax: 40 },
+    gross_motor: { belowMax: 35, monitorMax: 45 },
+    fine_motor: { belowMax: 15, monitorMax: 30 },
+    problem_solving: { belowMax: 25, monitorMax: 40 },
+    personal_social: { belowMax: 30, monitorMax: 40 }
+  }
+);
 ASQ_2_MONTH_SCORE_CONFIG["4-year-visit"] = buildAsqScoreConfig(
   "asq48",
   { communication: 30.72, gross_motor: 32.78, fine_motor: 15.81, problem_solving: 31.3, personal_social: 26.6 },
@@ -247,6 +313,17 @@ ASQ_2_MONTH_SCORE_CONFIG["4-year-visit"] = buildAsqScoreConfig(
     fine_motor: { belowMax: 15, monitorMax: 30 },
     problem_solving: { belowMax: 30, monitorMax: 40 },
     personal_social: { belowMax: 25, monitorMax: 35 }
+  }
+);
+ASQ_2_MONTH_SCORE_CONFIG["54-months-visit"] = buildAsqScoreConfig(
+  "asq54",
+  { communication: 31.85, gross_motor: 35.18, fine_motor: 17.32, problem_solving: 28.12, personal_social: 32.33 },
+  {
+    communication: { belowMax: 30, monitorMax: 40 },
+    gross_motor: { belowMax: 35, monitorMax: 45 },
+    fine_motor: { belowMax: 15, monitorMax: 30 },
+    problem_solving: { belowMax: 25, monitorMax: 40 },
+    personal_social: { belowMax: 30, monitorMax: 45 }
   }
 );
 ASQ_2_MONTH_SCORE_CONFIG["5-year-visit"] = buildAsqScoreConfig(

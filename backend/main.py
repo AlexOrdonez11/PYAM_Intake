@@ -46,7 +46,9 @@ DEFAULT_CORS_ORIGINS = (
     "http://127.0.0.1:5177,"
     "http://localhost:5178,"
     "http://127.0.0.1:5178,"
-    "https://frontend-ruddy-eight-66.vercel.app"
+    "https://frontend-ruddy-eight-66.vercel.app,"
+    "https://pyam-patient.vercel.app,"
+    "https://pyam-staff.vercel.app"
 )
 CORS_ORIGINS = [
     origin.strip()
@@ -161,6 +163,12 @@ def submissions() -> Collection:
     return mongo_db["intake_forms"]
 
 
+def audit_events() -> Collection:
+    if mongo_db is None:
+        raise RuntimeError("MongoDB is not configured.")
+    return mongo_db["audit_events"]
+
+
 def staff_profiles() -> Collection:
     if mongo_db is None:
         raise RuntimeError("MongoDB is not configured.")
@@ -181,6 +189,50 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "role": user.get("role", "staff"),
         "isActive": user.get("isActive", True),
     }
+
+
+def audit_actor(user: dict[str, Any] | None) -> dict[str, str]:
+    if not user:
+        return {"id": "patient", "email": "patient@local", "name": "Patient", "role": "patient"}
+    return {
+        "id": str(user.get("id") or user.get("_id")),
+        "email": user.get("email", ""),
+        "name": user.get("name") or user.get("email", "").split("@")[0] or "Staff user",
+        "role": user.get("role", "staff"),
+    }
+
+
+def audit_event(action: str, actor: dict[str, str], entity_id: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "id": str(uuid4()),
+        "at": utc_now(),
+        "action": action,
+        "by": actor["id"],
+        "actorId": actor["id"],
+        "actorEmail": actor.get("email"),
+        "actorName": actor.get("name"),
+        "actorRole": actor.get("role"),
+        "entityType": "intake_form",
+        "entityId": entity_id,
+        "metadata": metadata or {},
+    }
+
+
+def save_audit_event(event: dict[str, Any]) -> None:
+    if mongo_db is not None:
+        audit_events().insert_one(dict(event))
+
+
+def audit_history_for_submission(submission: dict[str, Any]) -> list[dict[str, Any]]:
+    embedded_events = submission.get("audit") or []
+    if mongo_db is not None:
+        stored_events = [
+            normalize_document(event)
+            for event in audit_events().find({"entityType": "intake_form", "entityId": submission["id"]})
+        ]
+        if stored_events:
+            return sorted(stored_events, key=lambda item: item.get("at", ""))
+    return sorted(embedded_events, key=lambda item: item.get("at", ""))
 
 
 def normalize_document(document: dict[str, Any]) -> dict[str, Any]:
@@ -482,6 +534,7 @@ def get_submission(
         submission = next((item for item in get_local_submissions() if item.get("id") == submission_id), None)
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found.")
+    submission["auditHistory"] = audit_history_for_submission(submission)
     return {"submission": submission}
 
 
@@ -506,9 +559,19 @@ def create_submission(
         )
 
     now = utc_now()
-    actor = public_user(request_user) if request_user else {"id": "patient", "email": "patient@local", "role": "patient"}
+    actor = audit_actor(request_user)
+    event = audit_event(
+        "submission_created",
+        actor,
+        entity_id=str(uuid4()),
+        metadata={
+            "formId": template["id"],
+            "formName": template["name"],
+            "status": "new",
+        },
+    )
     submission = {
-        "id": str(uuid4()),
+        "id": event["entityId"],
         "formId": template["id"],
         "formTemplateVersion": template.get("version", 1),
         "formName": template["name"],
@@ -520,15 +583,17 @@ def create_submission(
         "updatedAt": now,
         "submittedBy": actor,
         "answers": payload.answers,
-        "audit": [{"at": now, "action": "created", "by": actor["id"]}],
+        "audit": [event],
     }
 
     if mongo_db is not None:
         submissions().insert_one(dict(submission))
+        save_audit_event(event)
     else:
         stored_items = get_local_submissions()
         stored_items.append(submission)
         save_local_submissions(stored_items)
+    submission["auditHistory"] = [event]
     return {"submission": submission}
 
 
@@ -543,19 +608,53 @@ def update_submission(
         raise HTTPException(status_code=400, detail="Unsupported submission status.")
 
     now = utc_now()
+    existing_submission: dict[str, Any] | None = None
+    if mongo_db is not None:
+        existing_submission = submissions().find_one({"id": submission_id})
+        if existing_submission:
+            existing_submission = normalize_document(existing_submission)
+    else:
+        existing_submission = next((item for item in get_local_submissions() if item.get("id") == submission_id), None)
+    if not existing_submission:
+        raise HTTPException(status_code=404, detail="Submission not found.")
+
     set_fields: dict[str, Any] = {"updatedAt": now}
     if payload.status:
         set_fields["status"] = payload.status
     if payload.answers is not None:
         set_fields["answers"] = payload.answers
 
-    audit_entry = {
-        "at": now,
-        "action": "updated",
-        "by": request_user["id"],
-        "status": payload.status,
-        "answersUpdated": payload.answers is not None,
-    }
+    previous_answers = existing_submission.get("answers") or {}
+    changed_answer_keys = []
+    if payload.answers is not None:
+        changed_answer_keys = sorted(
+            key
+            for key in set(previous_answers.keys()) | set(payload.answers.keys())
+            if previous_answers.get(key) != payload.answers.get(key)
+        )
+
+    previous_status = existing_submission.get("status")
+    next_status = payload.status or previous_status
+    action = "submission_updated"
+    if payload.status and payload.status != previous_status and payload.answers is None:
+        action = "status_changed"
+    elif payload.answers is not None:
+        action = "staff_review_updated"
+
+    audit_entry = audit_event(
+        action,
+        audit_actor(request_user),
+        submission_id,
+        metadata={
+            "previousStatus": previous_status,
+            "newStatus": next_status,
+            "statusChanged": next_status != previous_status,
+            "answersUpdated": payload.answers is not None,
+            "changedAnswerCount": len(changed_answer_keys),
+            "changedAnswerKeys": changed_answer_keys[:50],
+        },
+    )
+    audit_entry["at"] = now
     if mongo_db is not None:
         result = submissions().find_one_and_update(
             {"id": submission_id},
@@ -567,7 +666,10 @@ def update_submission(
         )
         if not result:
             raise HTTPException(status_code=404, detail="Submission not found.")
-        return {"submission": normalize_document(result)}
+        save_audit_event(audit_entry)
+        updated = normalize_document(result)
+        updated["auditHistory"] = audit_history_for_submission(updated)
+        return {"submission": updated}
 
     stored_items = get_local_submissions()
     index = next((i for i, item in enumerate(stored_items) if item.get("id") == submission_id), -1)
@@ -581,6 +683,7 @@ def update_submission(
     stored_items[index]["updatedAt"] = now
     stored_items[index].setdefault("audit", []).append(audit_entry)
     save_local_submissions(stored_items)
+    stored_items[index]["auditHistory"] = audit_history_for_submission(stored_items[index])
     return {"submission": stored_items[index]}
 
 

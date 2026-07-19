@@ -24,6 +24,9 @@ backend/data/submissions.json
 backend/data/users.json
 backend/data/*.local.json
 backend/data/uvicorn-preview.*.log
+backend/data/ocr-*.txt
+backend/data/pdf-extracted-*.txt
+backend/data/*-text.txt
 
 # Dependencies and build output
 node_modules/
@@ -35,6 +38,7 @@ dist/
 build/
 frontend/dist/
 frontend/.npm-cache/
+.vercel-deploy/
 .next/
 
 # OS/editor noise

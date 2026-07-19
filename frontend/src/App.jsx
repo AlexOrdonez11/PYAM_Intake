@@ -13,6 +13,10 @@ import { SubmissionsPage } from "./pages/SubmissionsPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { WelcomePage, recommendFormsFromRouting } from "./pages/WelcomePage";
 
+const APP_MODE = window.PYAM_APP_MODE || "unified";
+const IS_PATIENT_APP = APP_MODE === "patient";
+const IS_STAFF_APP = APP_MODE === "staff";
+
 function initialAnswersForForm(form) {
   const answers = {};
   if (!form) return answers;
@@ -26,6 +30,8 @@ function initialAnswersForForm(form) {
 }
 
 function visibleViewFor(view, { mode, user, routingComplete, showAllForms }) {
+  if (IS_PATIENT_APP && ["login", "submissions", "templates", "staff"].includes(view)) return "welcome";
+  if (IS_STAFF_APP && view === "welcome") return user ? "submissions" : "login";
   if (view === "staff" && user?.role !== "admin") return mode === "staff" ? "intake" : "welcome";
   if (mode === "patient" && ["submissions", "templates", "staff"].includes(view)) return "welcome";
   if (view === "intake" && !routingComplete && !showAllForms) return "welcome";
@@ -46,10 +52,10 @@ const PATH_VIEWS = Object.fromEntries(Object.entries(VIEW_PATHS).map(([view, pat
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [authToken, setAuthToken] = useState(getStoredToken);
+  const [authToken, setAuthToken] = useState(() => (IS_PATIENT_APP ? "" : getStoredToken()));
   const [authReady, setAuthReady] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
-  const [mode, setMode] = useState("patient");
+  const [mode, setMode] = useState(IS_STAFF_APP ? "staff" : "patient");
   const [health, setHealth] = useState("Checking server");
   const [needsFirstAdmin, setNeedsFirstAdmin] = useState(false);
   const [forms, setForms] = useState([]);
@@ -82,8 +88,10 @@ export default function App() {
 
   useEffect(() => {
     document.body.classList.toggle("access-mode", view === "login");
-    document.body.classList.toggle("staff-mode", mode === "staff");
-    document.body.classList.toggle("patient-mode", mode !== "staff");
+    document.body.classList.toggle("staff-mode", mode === "staff" || IS_STAFF_APP);
+    document.body.classList.toggle("patient-mode", mode !== "staff" || IS_PATIENT_APP);
+    document.body.classList.toggle("split-patient-app", IS_PATIENT_APP);
+    document.body.classList.toggle("split-staff-app", IS_STAFF_APP);
     document.body.classList.toggle("admin-mode", currentUser?.role === "admin");
     document.body.dataset.view = view;
   }, [view, mode, currentUser]);
@@ -179,9 +187,18 @@ export default function App() {
 
   useEffect(() => {
     async function restore() {
+      if (IS_PATIENT_APP) {
+        setAuthSession({ accessToken: "", user: null });
+        await checkHealth();
+        await loadBootstrapState();
+        await loadForms();
+        if (location.pathname === "/" || location.pathname === "/login") navigateToView("welcome", { replace: true });
+        setAuthReady(true);
+        return;
+      }
       if (!authToken) {
         await refreshAll();
-        if (location.pathname === "/") navigateToView("login", { replace: true });
+        if (location.pathname === "/" || (IS_STAFF_APP && location.pathname === "/start")) navigateToView("login", { replace: true });
         setAuthReady(true);
         return;
       }
@@ -191,7 +208,7 @@ export default function App() {
         restoredUser = payload.user;
         setCurrentUser(payload.user);
         setMode("staff");
-        if (location.pathname === "/" || location.pathname === "/login") navigateToView("intake", { replace: true });
+        if (location.pathname === "/" || location.pathname === "/login") navigateToView(IS_STAFF_APP ? "submissions" : "intake", { replace: true });
       } catch {
         setAuthSession({ accessToken: "", user: null });
         navigateToView("login", { replace: true });
@@ -234,7 +251,7 @@ export default function App() {
       setMode("staff");
       setShowAllForms(true);
       setRoutingComplete(true);
-      navigateToView("intake");
+      navigateToView(IS_STAFF_APP ? "submissions" : "intake");
       await refreshAll();
       if (payload.user?.role === "admin") await loadStaff(payload.user, payload.accessToken);
     } catch (error) {
@@ -244,6 +261,10 @@ export default function App() {
   }
 
   function continuePatient() {
+    if (IS_STAFF_APP) {
+      navigateToView(authToken ? "submissions" : "login");
+      return;
+    }
     setMode("patient");
     setRoutingComplete(false);
     setShowAllForms(false);
@@ -253,6 +274,7 @@ export default function App() {
   }
 
   function enterStaffMode() {
+    if (IS_PATIENT_APP) return;
     if (!authToken) {
       navigateToView("login");
       return;
@@ -267,12 +289,12 @@ export default function App() {
 
   function logout() {
     setAuthSession({ accessToken: "", user: null });
-    setMode("patient");
+    setMode(IS_STAFF_APP ? "staff" : "patient");
     setRoutingComplete(false);
     setShowAllForms(false);
     setRecommendedFormIds([]);
     setSelectedFormId(null);
-    navigateToView("login");
+    navigateToView(IS_STAFF_APP ? "login" : "login");
   }
 
   function handleRoute(formData) {
@@ -285,6 +307,7 @@ export default function App() {
   }
 
   function showAllStaffForms() {
+    if (IS_PATIENT_APP) return;
     if (!authToken) {
       navigateToView("login");
       return;
@@ -388,7 +411,7 @@ export default function App() {
       />
   );
 
-  const welcomePage = <WelcomePage onRoute={handleRoute} onShowAllForms={showAllStaffForms} onStartOver={continuePatient} isStaff={isStaff} />;
+  const welcomePage = <WelcomePage onRoute={handleRoute} onShowAllForms={showAllStaffForms} onStartOver={continuePatient} isStaff={isStaff && !IS_PATIENT_APP} />;
 
   const intakePage = (
     <IntakePage
@@ -440,6 +463,15 @@ export default function App() {
       ? <Navigate to="/start" replace />
       : intakePage;
 
+  if (IS_PATIENT_APP && view === "login") return (
+    <Routes>
+      <Route path="/" element={<Navigate to="/start" replace />} />
+      <Route path="/login" element={<Navigate to="/start" replace />} />
+      <Route path="/start" element={welcomePage} />
+      <Route path="*" element={<Navigate to="/start" replace />} />
+    </Routes>
+  );
+
   if (view === "login") return (
     <Routes>
       <Route path="/" element={<Navigate to="/login" replace />} />
@@ -460,16 +492,17 @@ export default function App() {
       onPatientMode={continuePatient}
       onLogout={logout}
       onStartOver={continuePatient}
+      appMode={APP_MODE}
     >
       <Routes>
-        <Route path="/" element={<Navigate to={authToken ? "/intake" : "/login"} replace />} />
-        <Route path="/login" element={<Navigate to={authToken ? "/intake" : "/login"} replace />} />
-        <Route path="/start" element={welcomePage} />
+        <Route path="/" element={<Navigate to={IS_STAFF_APP ? (authToken ? "/submissions" : "/login") : authToken ? "/intake" : "/start"} replace />} />
+        <Route path="/login" element={<Navigate to={authToken ? (IS_STAFF_APP ? "/submissions" : "/intake") : "/login"} replace />} />
+        <Route path="/start" element={IS_STAFF_APP ? <Navigate to={authToken ? "/submissions" : "/login"} replace /> : welcomePage} />
         <Route path="/intake" element={guardedIntakePage} />
-        <Route path="/submissions" element={submissionsPage} />
-        <Route path="/templates" element={templatesPage} />
-        <Route path="/staff" element={staffPage} />
-        <Route path="*" element={<Navigate to="/start" replace />} />
+        <Route path="/submissions" element={IS_PATIENT_APP ? <Navigate to="/start" replace /> : submissionsPage} />
+        <Route path="/templates" element={IS_PATIENT_APP ? <Navigate to="/start" replace /> : templatesPage} />
+        <Route path="/staff" element={IS_PATIENT_APP ? <Navigate to="/start" replace /> : staffPage} />
+        <Route path="*" element={<Navigate to={IS_STAFF_APP ? (authToken ? "/submissions" : "/login") : "/start"} replace />} />
       </Routes>
     </AppShell>
   );

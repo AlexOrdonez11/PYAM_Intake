@@ -11,9 +11,12 @@ export function AppShell({
   onStaffMode,
   onPatientMode,
   onLogout,
-  onStartOver
+  onStartOver,
+  appMode = "unified"
 }) {
   const isAdmin = user?.role === "admin";
+  const isPatientApp = appMode === "patient";
+  const isStaffApp = appMode === "staff";
   const title =
     view === "login"
       ? "Welcome"
@@ -33,11 +36,11 @@ export function AppShell({
         <BrandLogo tone="dark" subtitle="Clinic intake platform" />
 
         <nav className="nav-tabs" aria-label="Views">
-          <button className={`nav-button ${view === "welcome" ? "active" : ""}`} onClick={() => onViewChange("welcome")} type="button">Welcome</button>
+          {!isStaffApp ? <button className={`nav-button ${view === "welcome" ? "active" : ""}`} onClick={() => onViewChange("welcome")} type="button">Welcome</button> : null}
           <button className={`nav-button ${view === "intake" ? "active" : ""}`} onClick={() => onViewChange("intake")} type="button">Intake</button>
-          <button className={`nav-button ${view === "submissions" ? "active" : ""}`} onClick={() => onViewChange("submissions")} data-staff-only type="button">Submissions</button>
-          <button className={`nav-button ${view === "templates" ? "active" : ""}`} onClick={() => onViewChange("templates")} data-staff-only type="button">Templates</button>
-          {isAdmin ? (
+          {!isPatientApp ? <button className={`nav-button ${view === "submissions" ? "active" : ""}`} onClick={() => onViewChange("submissions")} data-staff-only type="button">Submissions</button> : null}
+          {!isPatientApp ? <button className={`nav-button ${view === "templates" ? "active" : ""}`} onClick={() => onViewChange("templates")} data-staff-only type="button">Templates</button> : null}
+          {!isPatientApp && isAdmin ? (
             <button className={`nav-button ${view === "staff" ? "active" : ""}`} onClick={() => onViewChange("staff")} data-admin-only type="button">Staff</button>
           ) : null}
         </nav>
@@ -53,12 +56,12 @@ export function AppShell({
             </div>
           </div>
           <div className="topbar-actions">
-            <span className="pill" id="view-mode-pill">{mode === "staff" ? "Staff view" : "Patient view"}</span>
+            <span className="pill" id="view-mode-pill">{isStaffApp ? "Staff app" : isPatientApp ? "Patient app" : mode === "staff" ? "Staff view" : "Patient view"}</span>
             <span className="pill" data-staff-only>{health}</span>
             {user ? <span className="pill" data-staff-only>{user.email} - {user.role}</span> : null}
-            <button className="ghost-button" id="start-over-button" onClick={onStartOver} type="button">Start over</button>
-            <button className="ghost-button" id="patient-mode-button" onClick={onPatientMode} data-staff-only type="button">Patient view</button>
-            <button className="ghost-button" id="staff-mode-button" onClick={onStaffMode} type="button">Staff login</button>
+            {!isStaffApp ? <button className="ghost-button" id="start-over-button" onClick={onStartOver} type="button">Start over</button> : null}
+            {!isPatientApp && !isStaffApp ? <button className="ghost-button" id="patient-mode-button" onClick={onPatientMode} data-staff-only type="button">Patient view</button> : null}
+            {!isPatientApp && !isStaffApp ? <button className="ghost-button" id="staff-mode-button" onClick={onStaffMode} type="button">Staff login</button> : null}
             {user ? <button className="ghost-button" id="logout-button" onClick={onLogout} data-staff-only type="button">Log out</button> : null}
             <button className="ghost-button" onClick={onRefresh} data-staff-only type="button">Refresh</button>
           </div>

@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "build": "node scripts/write-config.js && vite build",
+    "build:patient": "node scripts/write-config.js && vite build",
+    "build:staff": "node scripts/write-config.js && vite build",
     "dev": "node scripts/write-config.js && vite --host 127.0.0.1 --port 5178",
     "smoke:routes": "node scripts/smoke-routes.mjs"
   },
