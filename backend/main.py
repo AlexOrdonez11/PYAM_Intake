@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -9,7 +10,7 @@ from uuid import uuid4
 
 import bcrypt
 import jwt
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,6 +19,7 @@ from pymongo import ASCENDING, MongoClient, ReturnDocument
 from pymongo.collection import Collection
 
 from backend.db_schema import ensure_database_schema, seed_form_templates
+from backend.scoring import add_calculated_scores, review_for_submission
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +40,7 @@ USERS_FILE = DATA_DIR / "users.json"
 
 MONGO_URI = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI")
 MONGODB_DB = os.getenv("MONGODB_DB", "pyam_intake")
+PYAM_ENV = os.getenv("PYAM_ENV", "development").lower()
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me-for-production")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "720"))
@@ -59,6 +62,12 @@ CORS_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX")
 
 mongo_client: MongoClient | None = MongoClient(MONGO_URI) if MONGO_URI else None
 mongo_db = mongo_client[MONGODB_DB] if mongo_client is not None else None
+
+if PYAM_ENV == "production":
+    if not MONGO_URI:
+        raise RuntimeError("MONGO_URI is required when PYAM_ENV=production.")
+    if not os.getenv("JWT_SECRET") or JWT_SECRET == "change-me-for-production":
+        raise RuntimeError("A strong JWT_SECRET is required when PYAM_ENV=production.")
 
 
 app = FastAPI(
@@ -130,6 +139,7 @@ class SubmissionUpdate(BaseModel):
 
 class FormTemplateUpdate(BaseModel):
     template: dict[str, Any]
+    publish: bool = True
 
 
 def utc_now() -> str:
@@ -400,12 +410,14 @@ def validate_submission(template: dict[str, Any], answers: dict[str, Any]) -> li
 
 
 def validate_form_template(template: dict[str, Any]) -> dict[str, Any]:
+    allowed_field_types = {"text", "email", "tel", "date", "number", "datetime-local", "textarea", "select", "radio", "multicheck", "checkbox", "scale", "signature"}
     required = ["id", "name", "category", "sections"]
     missing = [key for key in required if not template.get(key)]
     if missing:
         raise HTTPException(status_code=422, detail=f"Template is missing: {', '.join(missing)}.")
     if not isinstance(template.get("sections"), list):
         raise HTTPException(status_code=422, detail="Template sections must be a list.")
+    field_ids: list[str] = []
     for section_index, section in enumerate(template["sections"], start=1):
         if not section.get("title"):
             raise HTTPException(status_code=422, detail=f"Section {section_index} needs a title.")
@@ -416,8 +428,14 @@ def validate_form_template(template: dict[str, Any]) -> dict[str, Any]:
         for field_index, field in enumerate(fields, start=1):
             if not field.get("id") or not field.get("label") or not field.get("type"):
                 raise HTTPException(status_code=422, detail=f"Field {field_index} in section {section_index} needs id, label, and type.")
+            if field.get("type") not in allowed_field_types:
+                raise HTTPException(status_code=422, detail=f"Field {field.get('id')} uses unsupported type {field.get('type')}.")
+            field_ids.append(str(field["id"]))
             if field.get("type") in {"radio", "select", "multicheck", "scale"} and not isinstance(field.get("options", []), list):
                 raise HTTPException(status_code=422, detail=f"Options for field {field.get('id')} must be a list.")
+    duplicate_ids = sorted({field_id for field_id in field_ids if field_ids.count(field_id) > 1})
+    if duplicate_ids:
+        raise HTTPException(status_code=422, detail=f"Duplicate field ids are not allowed: {', '.join(duplicate_ids[:10])}.")
     now = utc_now()
     return {
         **template,
@@ -426,6 +444,40 @@ def validate_form_template(template: dict[str, Any]) -> dict[str, Any]:
         "updatedAt": now,
         "createdAt": template.get("createdAt", now),
     }
+
+
+def template_guardrail_warnings(template: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    field_ids = {
+        str(field.get("id"))
+        for section in template.get("sections", [])
+        for field in section.get("fields", [])
+        if field.get("id")
+    }
+    scoring_markers = ["asq", "epds", "phq", "gad7", "psc17", "vanderbilt", "scared", "asrs", "ppsc", "mchat", "act", "cact", "crafft", "ace"]
+    scoring_ids = [field_id for field_id in field_ids if any(marker in field_id.lower() for marker in scoring_markers)]
+    if scoring_ids:
+        warnings.append("This template contains scoring-sensitive fields. Changing field IDs or options can affect automatic calculations.")
+    asq_prefixes = sorted({field_id.rsplit("_", 1)[0] for field_id in field_ids if re_match_asq_item(field_id)})
+    for prefix in asq_prefixes:
+        expected = {f"{prefix}_{index}" for index in range(1, 7)}
+        missing = sorted(expected - field_ids)
+        if missing:
+            warnings.append(f"ASQ group {prefix} is missing item fields: {', '.join(missing)}.")
+    return warnings
+
+
+def re_match_asq_item(field_id: str) -> bool:
+    return bool(re.match(r"^asq\d*_(communication|comm|gross|fine|problem|social)_\d+$", field_id))
+
+
+def next_template_version(form_id: str) -> int:
+    if mongo_db is not None:
+        latest = form_templates().find_one({"id": form_id}, sort=[("version", -1)])
+        return int(latest.get("version", 0)) + 1 if latest else 1
+    templates = read_json(TEMPLATES_FILE, [])
+    versions = [int(item.get("version", 1)) for item in templates if item.get("id") == form_id]
+    return max(versions, default=0) + 1
 
 
 def patient_name_from_answers(answers: dict[str, Any]) -> str:
@@ -441,9 +493,14 @@ def patient_name_from_answers(answers: dict[str, Any]) -> str:
 
 @app.get("/api/health")
 def health() -> dict[str, Any]:
+    template_count = form_templates().count_documents({"status": "active"}) if mongo_db is not None else len(get_templates())
     return {
         "ok": True,
+        "environment": PYAM_ENV,
         "storage": "mongodb" if mongo_db is not None else "local-json",
+        "database": MONGODB_DB if mongo_db is not None else None,
+        "activeTemplates": template_count,
+        "productionReady": PYAM_ENV != "production" or (mongo_db is not None and JWT_SECRET != "change-me-for-production"),
         "timestamp": utc_now(),
     }
 
@@ -545,15 +602,23 @@ def update_form_template(
     template = validate_form_template(payload.template)
     if template["id"] != form_id:
         raise HTTPException(status_code=400, detail="Template id cannot be changed from this endpoint.")
+    warnings = template_guardrail_warnings(template)
+    requested_version = int(template.get("version", 1))
+    if payload.publish:
+        template["version"] = next_template_version(form_id)
+        template["status"] = "active"
+    else:
+        template["status"] = "draft"
 
     now = utc_now()
     actor = audit_actor(admin)
     event = audit_event(
-        "form_template_updated",
+        "form_template_published" if payload.publish else "form_template_draft_saved",
         actor,
         form_id,
         metadata={
             "formName": template["name"],
+            "previousVersion": requested_version,
             "version": template["version"],
             "sectionCount": len(template.get("sections", [])),
             "fieldCount": sum(len(section.get("fields", [])) for section in template.get("sections", [])),
@@ -563,39 +628,76 @@ def update_form_template(
     template["audit"] = [*(template.get("audit") or []), event]
 
     if mongo_db is not None:
-        result = form_templates().find_one_and_update(
-            {"id": form_id, "version": template["version"]},
-            {"$set": template},
-            upsert=True,
-            return_document=ReturnDocument.AFTER,
-        )
+        if payload.publish:
+            form_templates().update_many(
+                {"id": form_id, "status": "active"},
+                {"$set": {"status": "archived", "updatedAt": now}},
+            )
+        result = form_templates().insert_one(dict(template))
+        saved = form_templates().find_one({"_id": result.inserted_id})
         save_audit_event(event)
-        return {"form": normalize_document(result)}
+        return {"form": normalize_document(saved), "warnings": warnings}
 
     templates = read_json(TEMPLATES_FILE, [])
-    index = next((i for i, item in enumerate(templates) if item.get("id") == form_id), -1)
-    if index == -1:
+    if not any(item.get("id") == form_id for item in templates):
         raise HTTPException(status_code=404, detail="Form template not found.")
-    templates[index] = template
+    if payload.publish:
+        templates = [
+            {**item, "status": "archived", "updatedAt": now}
+            if item.get("id") == form_id and item.get("status", "active") == "active"
+            else item
+            for item in templates
+        ]
+        templates.append(template)
+    else:
+        draft_index = next((i for i, item in enumerate(templates) if item.get("id") == form_id and item.get("status") == "draft"), -1)
+        if draft_index == -1:
+            templates.append(template)
+        else:
+            templates[draft_index] = template
     write_json(TEMPLATES_FILE, templates)
-    return {"form": template}
+    return {"form": template, "warnings": warnings}
 
 
 @app.get("/api/submissions")
-def list_submissions(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, list[dict[str, Any]]]:
+def list_submissions(
+    user: dict[str, Any] = Depends(get_current_user),
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = None,
+    status_filter: str | None = Query(default=None, alias="status"),
+) -> dict[str, Any]:
     del user
     if mongo_db is not None:
-        stored_items = [normalize_document(item) for item in submissions().find()]
+        query: dict[str, Any] = {}
+        if cursor:
+            query["createdAt"] = {"$lt": cursor}
+        if status_filter:
+            query["status"] = status_filter
+        stored_items = [
+            normalize_document(item)
+            for item in submissions().find(query).sort("createdAt", -1).limit(limit + 1)
+        ]
     else:
-        stored_items = get_local_submissions()
+        stored_items = sorted(get_local_submissions(), key=lambda item: item.get("createdAt", ""), reverse=True)
+        if status_filter:
+            stored_items = [item for item in stored_items if item.get("status") == status_filter]
+        if cursor:
+            stored_items = [item for item in stored_items if item.get("createdAt", "") < cursor]
+        stored_items = stored_items[: limit + 1]
 
+    has_more = len(stored_items) > limit
+    page_items = stored_items[:limit]
     summary = []
-    for submission in stored_items:
+    for submission in page_items:
         item = {key: value for key, value in submission.items() if key not in {"answers", "audit"}}
+        item["review"] = submission.get("review") or review_for_submission(submission)
         summary.append(item)
 
-    summary.sort(key=lambda item: item.get("createdAt", ""), reverse=True)
-    return {"submissions": summary}
+    return {
+        "submissions": summary,
+        "nextCursor": page_items[-1].get("createdAt") if has_more and page_items else None,
+        "hasMore": has_more,
+    }
 
 
 @app.get("/api/submissions/{submission_id}")
@@ -626,7 +728,8 @@ def create_submission(
     if not template:
         raise HTTPException(status_code=400, detail="Unknown form template.")
 
-    validation_errors = validate_submission(template, payload.answers)
+    scored_answers = add_calculated_scores(template["id"], payload.answers)
+    validation_errors = validate_submission(template, scored_answers)
     if validation_errors:
         raise HTTPException(
             status_code=422,
@@ -654,15 +757,16 @@ def create_submission(
         "formTemplateVersion": template.get("version", 1),
         "formName": template["name"],
         "category": template["category"],
-        "patientName": patient_name_from_answers(payload.answers),
-        "patientDob": payload.answers.get("date_of_birth"),
+        "patientName": patient_name_from_answers(scored_answers),
+        "patientDob": scored_answers.get("date_of_birth"),
         "status": "new",
         "createdAt": now,
         "updatedAt": now,
         "submittedBy": actor,
-        "answers": payload.answers,
+        "answers": scored_answers,
         "audit": [event],
     }
+    submission["review"] = review_for_submission(submission)
 
     if mongo_db is not None:
         submissions().insert_one(dict(submission))
@@ -699,16 +803,18 @@ def update_submission(
     set_fields: dict[str, Any] = {"updatedAt": now}
     if payload.status:
         set_fields["status"] = payload.status
+    scored_payload_answers = None
     if payload.answers is not None:
-        set_fields["answers"] = payload.answers
+        scored_payload_answers = add_calculated_scores(existing_submission.get("formId", ""), payload.answers)
+        set_fields["answers"] = scored_payload_answers
 
     previous_answers = existing_submission.get("answers") or {}
     changed_answer_keys = []
-    if payload.answers is not None:
+    if scored_payload_answers is not None:
         changed_answer_keys = sorted(
             key
-            for key in set(previous_answers.keys()) | set(payload.answers.keys())
-            if previous_answers.get(key) != payload.answers.get(key)
+            for key in set(previous_answers.keys()) | set(scored_payload_answers.keys())
+            if previous_answers.get(key) != scored_payload_answers.get(key)
         )
 
     previous_status = existing_submission.get("status")
@@ -733,6 +839,8 @@ def update_submission(
         },
     )
     audit_entry["at"] = now
+    review_submission = {**existing_submission, **set_fields}
+    set_fields["review"] = review_for_submission(review_submission)
     if mongo_db is not None:
         result = submissions().find_one_and_update(
             {"id": submission_id},
@@ -756,9 +864,10 @@ def update_submission(
 
     if payload.status:
         stored_items[index]["status"] = payload.status
-    if payload.answers is not None:
-        stored_items[index]["answers"] = payload.answers
+    if scored_payload_answers is not None:
+        stored_items[index]["answers"] = scored_payload_answers
     stored_items[index]["updatedAt"] = now
+    stored_items[index]["review"] = review_for_submission(stored_items[index])
     stored_items[index].setdefault("audit", []).append(audit_entry)
     save_local_submissions(stored_items)
     stored_items[index]["auditHistory"] = audit_history_for_submission(stored_items[index])

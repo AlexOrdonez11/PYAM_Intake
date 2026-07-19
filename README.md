@@ -1,12 +1,13 @@
 # PYAM Intake
 
-Patient intake prototype with a static frontend, FastAPI backend, MongoDB-ready persistence, and staff login.
+Patient intake prototype with a React/Vite frontend, FastAPI backend, MongoDB persistence, staff review tooling, calculated scoring, and split patient/staff deployments.
 
 ## Structure
 
 ```text
 frontend/
-  public/              Static UI deployed to Vercel
+  src/                 React application
+  public/              Runtime config, logo, and source-form assets
   scripts/             Build-time config writer
   vercel.json          Vercel settings
 
@@ -14,7 +15,7 @@ backend/
   data/                Versioned form templates and local fallback JSON
   main.py              FastAPI API, auth, submissions, static fallback
 
-Dockerfile             Cloud Run container from the repo root
+Dockerfile             Cloud Run container from the repo root; this is the backend deploy image
 ```
 
 ## Local Development
@@ -64,7 +65,7 @@ The app uses these collections:
 - `users`: staff login credentials, roles, active status, and password hashes
 - `staff_profiles`: staff display/profile data and permissions
 - `form_templates`: versioned intake form definitions seeded from `backend/data/form-templates.json`
-- `intake_forms`: submitted patient intake records and answers
+- `intake_forms`: submitted patient intake records, answers, calculated scores, and review summaries
 - `patients`: reusable patient contact/demographic records for the next phase
 - `audit_events`: cross-collection audit trail for future staff actions
 
@@ -74,17 +75,20 @@ Backend startup creates missing form templates but does not overwrite an existin
 
 1. Create MongoDB Atlas database and copy the connection string.
 2. Deploy the root `Dockerfile` to GCP Cloud Run with `MONGO_URI`, `MONGODB_DB`, `JWT_SECRET`, `CORS_ORIGINS`, and optionally `CORS_ORIGIN_REGEX`.
-3. Deploy `frontend/` to Vercel with `PYAM_API_BASE_URL` set to the Cloud Run service URL.
+3. Deploy `frontend/` to Vercel twice:
+   - patient app with `PYAM_APP_MODE=patient`
+   - staff app with `PYAM_APP_MODE=staff`
+   - both with `PYAM_API_BASE_URL` set to the Cloud Run service URL
 4. Create the first staff account through the app.
 5. Improve one intake form at a time in `backend/data/form-templates.json`, starting with the highest-priority clinic workflow.
 
 ## Automatic Vercel Deployments
 
-Use Vercel's native GitHub integration for automatic frontend deployments. This avoids storing a Vercel CLI token in GitHub.
+Use Vercel's native GitHub integration for automatic frontend deployments when possible. This avoids storing a Vercel CLI token in GitHub.
 
 In Vercel:
 
-1. Open the `frontend` project.
+1. Open each frontend project, `pyam-patient` and `pyam-staff`.
 2. Go to **Settings -> Git**.
 3. Connect the GitHub repository.
 4. Set the project root directory to `frontend`.
@@ -96,7 +100,7 @@ Build Command: npm run build
 Output Directory: dist
 ```
 
-After that, pushes to the connected production branch deploy automatically, and pull requests create preview deployments. Keep `PYAM_API_BASE_URL` configured in the Vercel project environment variables.
+After that, pushes to the connected production branch deploy automatically, and pull requests create preview deployments. Keep `PYAM_API_BASE_URL` configured in both Vercel project environment variables. Set `PYAM_APP_MODE=patient` for the patient project and `PYAM_APP_MODE=staff` for the staff project.
 
 ## Cloud Run
 
@@ -114,7 +118,7 @@ Set runtime environment variables in the provider console or with your secret ma
 For the current Vercel prototype, Cloud Run must allow the Vercel browser origin. At minimum:
 
 ```text
-CORS_ORIGINS=http://localhost:5177,http://127.0.0.1:5177,http://localhost:5178,http://127.0.0.1:5178,https://frontend-ruddy-eight-66.vercel.app
+CORS_ORIGINS=http://localhost:5177,http://127.0.0.1:5177,http://localhost:5178,http://127.0.0.1:5178,https://pyam-patient.vercel.app,https://pyam-staff.vercel.app
 ```
 
 After redeploying the backend with this repo version, you can also allow Vercel preview deployments with:
@@ -127,7 +131,12 @@ CORS_ORIGIN_REGEX=https://.*\.vercel\.app
 
 - Patient-facing routing questions
 - Dynamic intake form rendering
+- Split patient/staff Vercel modes
 - Staff-only submission review
+- Dedicated submission detail routes
+- Server-side calculated scoring verification
+- Admin form/template editor
+- Paginated submission summaries
 - Staff login/register prototype
 - MongoDB persistence for users and submissions when configured
 - Local JSON fallback for fast local work

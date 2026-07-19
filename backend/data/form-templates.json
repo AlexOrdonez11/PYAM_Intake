@@ -34182,7 +34182,7 @@
           {
             "id": "topics_how_you_are_feeling",
             "label": "Topics: how you are feeling",
-            "type": "checkbox-group",
+            "type": "multicheck",
             "options": [
               "Your health",
               "Feeling sad",
@@ -34197,7 +34197,7 @@
           {
             "id": "topics_getting_used_to_baby",
             "label": "Topics: getting used to your baby",
-            "type": "checkbox-group",
+            "type": "multicheck",
             "options": [
               "How your baby sleeps",
               "Placing baby on back to sleep",
@@ -34207,7 +34207,7 @@
           {
             "id": "topics_feeding",
             "label": "Topics: feeding your baby",
-            "type": "checkbox-group",
+            "type": "multicheck",
             "options": [
               "Jaundice",
               "Burping",
@@ -34218,7 +34218,7 @@
           {
             "id": "topics_safety",
             "label": "Topics: safety",
-            "type": "checkbox-group",
+            "type": "multicheck",
             "options": [
               "Car safety seat",
               "Cigarette smoke",
@@ -34232,7 +34232,7 @@
           {
             "id": "topics_baby_care",
             "label": "Topics: baby care",
-            "type": "checkbox-group",
+            "type": "multicheck",
             "options": [
               "Emergency situations",
               "Leaving the house",
@@ -34267,7 +34267,7 @@
           {
             "id": "family_major_changes",
             "label": "Major changes in your family lately",
-            "type": "checkbox-group",
+            "type": "multicheck",
             "options": [
               "Move",
               "Job change",
@@ -34308,7 +34308,7 @@
           {
             "id": "baby_tasks",
             "label": "Tasks your baby is able to do",
-            "type": "checkbox-group",
+            "type": "multicheck",
             "options": [
               "Eats well",
               "Follows your face",
@@ -39794,7 +39794,7 @@
           {
             "id": "impact_location",
             "label": "Location of impact",
-            "type": "checkbox-group",
+            "type": "multicheck",
             "options": [
               "Frontal",
               "Left temporal",
@@ -39874,7 +39874,7 @@
           {
             "id": "early_signs",
             "label": "Early signs",
-            "type": "checkbox-group",
+            "type": "multicheck",
             "options": [
               "Appears dazed or stunned",
               "Confused about events",
@@ -40230,7 +40230,7 @@
           {
             "id": "migraine_history",
             "label": "Migraine history",
-            "type": "checkbox-group",
+            "type": "multicheck",
             "options": [
               "Personal",
               "Family"
@@ -40239,7 +40239,7 @@
           {
             "id": "developmental_history",
             "label": "Developmental history",
-            "type": "checkbox-group",
+            "type": "multicheck",
             "options": [
               "Learning disabilities",
               "ADHD",
@@ -40249,7 +40249,7 @@
           {
             "id": "psychiatric_history",
             "label": "Psychiatric history",
-            "type": "checkbox-group",
+            "type": "multicheck",
             "options": [
               "Anxiety",
               "Depression",
@@ -40265,7 +40265,7 @@
           {
             "id": "ace_red_flags",
             "label": "Red flags for acute emergency management",
-            "type": "checkbox-group",
+            "type": "multicheck",
             "options": [
               "Headaches that worsen",
               "Looks very drowsy or cannot be awakened",
@@ -40309,7 +40309,7 @@
           {
             "id": "ace_follow_up_action",
             "label": "Follow-up action",
-            "type": "checkbox-group",
+            "type": "multicheck",
             "options": [
               "No follow-up needed",
               "Office monitoring",
@@ -40491,3 +40491,4 @@
     ]
   }
 ]
+

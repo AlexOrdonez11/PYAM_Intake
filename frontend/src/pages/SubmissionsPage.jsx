@@ -310,7 +310,7 @@ function exportSubmissionPdf({ submission, form, answers, staffFields, fieldMap,
   win.focus();
 }
 
-export function SubmissionsPage({ submissions, isLoading, detailLoading, selectedSubmission, forms, onSelect, onStatusChange, detailOnly = false, onBack }) {
+export function SubmissionsPage({ submissions, isLoading, detailLoading, selectedSubmission, forms, onSelect, onStatusChange, detailOnly = false, onBack, onLoadMore, hasMore = false }) {
   const [statusFilter, setStatusFilter] = useState("");
   const [reviewFilter, setReviewFilter] = useState("");
   const [staffDraft, setStaffDraft] = useState({});
@@ -558,6 +558,11 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
             )) : (
               <div className="empty-state"><h2>No submissions</h2><p>Submitted intakes will appear here.</p></div>
             )}
+            {hasMore ? (
+              <button className="secondary-button load-more-button" type="button" onClick={onLoadMore} disabled={isLoading}>
+                {isLoading ? "Loading" : "Load more"}
+              </button>
+            ) : null}
           </div>
 
           {detailContent}

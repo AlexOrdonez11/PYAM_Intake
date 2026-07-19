@@ -95,6 +95,8 @@ export default function App() {
   const [forms, setForms] = useState([]);
   const [submissions, setSubmissions] = useState([]);
   const [submissionsLoading, setSubmissionsLoading] = useState(false);
+  const [submissionsNextCursor, setSubmissionsNextCursor] = useState(null);
+  const [submissionsHasMore, setSubmissionsHasMore] = useState(false);
   const [submissionDetailLoading, setSubmissionDetailLoading] = useState(false);
   const [selectedSubmission, setSelectedSubmission] = useState(null);
   const [staffUsers, setStaffUsers] = useState([]);
@@ -182,34 +184,36 @@ export default function App() {
     }
   }, [authToken, currentUser]);
 
-  const loadSubmissions = useCallback(async () => {
+  const loadSubmissions = useCallback(async ({ append = false, cursor = "" } = {}) => {
     if (!authToken) {
       setSubmissions([]);
       setSelectedSubmission(null);
+      setSubmissionsNextCursor(null);
+      setSubmissionsHasMore(false);
       return;
     }
     setSubmissionsLoading(true);
     try {
-      const payload = await api("/api/submissions", {}, authToken);
-      const detailed = await Promise.all(
-        payload.submissions.map(async (submission) => {
-          try {
-            const detail = await api(`/api/submissions/${encodeURIComponent(submission.id)}`, {}, authToken);
-            return enrichSubmission({ ...submission, answers: detail.submission.answers || {} });
-          } catch {
-            return enrichSubmission(submission);
-          }
-        })
-      );
-      setSubmissions(detailed);
+      const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+      const payload = await api(`/api/submissions${query}`, {}, authToken);
+      const summaries = payload.submissions.map((submission) => enrichSubmission(submission));
+      setSubmissions((current) => append ? [...current, ...summaries] : summaries);
+      setSubmissionsNextCursor(payload.nextCursor || null);
+      setSubmissionsHasMore(Boolean(payload.hasMore));
       setSelectedSubmission((current) => {
         if (!current) return null;
-        return detailed.find((item) => item.id === current.id) || null;
+        const refreshedSummary = summaries.find((item) => item.id === current.id);
+        return refreshedSummary ? { ...current, ...refreshedSummary } : current;
       });
     } finally {
       setSubmissionsLoading(false);
     }
   }, [authToken]);
+
+  const loadMoreSubmissions = useCallback(async () => {
+    if (!submissionsNextCursor) return;
+    await loadSubmissions({ append: true, cursor: submissionsNextCursor });
+  }, [loadSubmissions, submissionsNextCursor]);
 
   const refreshAll = useCallback(async () => {
     await checkHealth();
@@ -438,10 +442,10 @@ export default function App() {
   async function saveTemplate(template) {
     const payload = await api(`/api/forms/${encodeURIComponent(template.id)}`, {
       method: "PATCH",
-      body: JSON.stringify({ template })
+      body: JSON.stringify({ template, publish: true })
     }, authToken);
     setForms((current) => current.map((form) => (form.id === payload.form.id ? payload.form : form)));
-    return payload.form;
+    return payload;
   }
 
   const loginPage = (
@@ -492,6 +496,8 @@ export default function App() {
       forms={forms}
       onSelect={selectSubmission}
       onStatusChange={updateSubmissionStatus}
+      onLoadMore={loadMoreSubmissions}
+      hasMore={submissionsHasMore}
     />
   ) : authReady ? <Navigate to="/login" replace /> : <div className="empty-state"><h2>Loading</h2><p>Checking your session.</p></div>;
 

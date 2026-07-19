@@ -22,6 +22,13 @@ function fromOptionsText(text) {
   return text.split("\n").map((item) => item.trim()).filter(Boolean);
 }
 
+function hasScoringSensitiveFields(template) {
+  const markers = ["asq", "epds", "phq", "gad7", "psc17", "vanderbilt", "scared", "asrs", "ppsc", "mchat", "act", "cact", "crafft", "ace"];
+  return (template.sections || []).some((section) =>
+    (section.fields || []).some((field) => markers.some((marker) => String(field.id || "").toLowerCase().includes(marker)))
+  );
+}
+
 function updateArrayItem(items, index, updater) {
   return items.map((item, itemIndex) => (itemIndex === index ? updater(item) : item));
 }
@@ -101,16 +108,21 @@ function TemplateEditor({ draft, onChange, onSave, onReset, saving, message, err
         <div>
           <p className="eyebrow">Admin template editor</p>
           <h2>{draft.name || "Untitled form"}</h2>
-          <p>{fieldCount(draft)} fields - {contentCount(draft)} notes</p>
+          <p>Version {draft.version || 1} - {fieldCount(draft)} fields - {contentCount(draft)} notes</p>
         </div>
         <div className="detail-actions">
           <button className="secondary-button" type="button" onClick={() => setJsonOpen((open) => !open)}>Advanced JSON</button>
           <button className="secondary-button" type="button" onClick={onReset}>Reset</button>
-          <button className="primary-button" type="button" onClick={onSave} disabled={saving}>{saving ? "Saving" : "Save changes"}</button>
+          <button className="primary-button" type="button" onClick={onSave} disabled={saving}>{saving ? "Publishing" : "Publish new version"}</button>
         </div>
       </div>
 
       {message ? <div className={`message ${error ? "error" : ""}`} role="status">{message}</div> : null}
+      {hasScoringSensitiveFields(draft) ? (
+        <div className="template-warning" role="note">
+          This form has calculated scoring. Edit labels freely, but be careful changing field IDs, option text, or score fields because calculations depend on them.
+        </div>
+      ) : null}
 
       <div className="template-editor-grid">
         <label className="field">
@@ -239,9 +251,12 @@ export function TemplatesPage({ forms, user, onSaveTemplate }) {
     setMessage("");
     setError(false);
     try {
-      const saved = await onSaveTemplate(draft);
-      setDraft(cloneTemplate(saved));
-      setMessage("Template saved. New patient submissions will use the updated questions.");
+      const payload = await onSaveTemplate(draft);
+      setDraft(cloneTemplate(payload.form));
+      setMessage([
+        `Version ${payload.form.version} published. New patient submissions will use the updated questions.`,
+        ...(payload.warnings || [])
+      ].join(" "));
     } catch (saveError) {
       setError(true);
       setMessage(saveError.message || "Unable to save template.");

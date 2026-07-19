@@ -1499,6 +1499,19 @@ textarea.field-control {
   text-align: center;
 }
 
+.error-boundary {
+  align-items: center;
+  background: var(--bg);
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.error-boundary .empty-state {
+  max-width: 560px;
+}
+
 .compact-empty {
   min-height: 160px;
 }
@@ -1607,6 +1620,11 @@ textarea.field-control {
   border-right: 1px solid var(--line);
   max-height: calc(100vh - 230px);
   overflow: auto;
+}
+
+.load-more-button {
+  justify-content: center;
+  width: 100%;
 }
 
 .submission-card {
@@ -2080,6 +2098,16 @@ textarea.field-control {
   display: grid;
   gap: 12px;
   padding: 14px;
+}
+
+.template-warning {
+  border: 1px solid #eed38a;
+  border-radius: 12px;
+  background: #fff9e8;
+  color: #76510a;
+  font-weight: 800;
+  line-height: 1.45;
+  padding: 12px 14px;
 }
 
 .template-json-editor textarea {

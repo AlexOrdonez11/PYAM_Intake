@@ -1,5 +1,6 @@
 .git
 .agents
+.vercel-deploy
 .venv
 __pycache__
 *.pyc
@@ -27,3 +28,4 @@ backend/data/submissions.json
 backend/data/users.json
 backend/data/uvicorn-preview.*.log
 frontend/public/source-forms
+tmp
