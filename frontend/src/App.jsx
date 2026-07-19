@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, getStoredToken, storeToken } from "./api/client";
 import { AppShell } from "./components/layout/AppShell";
 import { buildSubmissionAnswers } from "./features/forms/FormRenderer";
@@ -79,7 +79,7 @@ export default function App() {
   const [staffError, setStaffError] = useState(false);
 
   const isStaff = mode === "staff";
-  const view = PATH_VIEWS[location.pathname] || "login";
+  const view = location.pathname.startsWith("/submissions") ? "submissions" : PATH_VIEWS[location.pathname] || "login";
   const selectedForm = useMemo(() => forms.find((form) => form.id === selectedFormId), [forms, selectedFormId]);
 
   const navigateToView = useCallback((nextView, options = {}) => {
@@ -359,6 +359,7 @@ export default function App() {
       const summary = submissions.find((item) => item.id === id);
       const payload = await api(`/api/submissions/${encodeURIComponent(id)}`, {}, authToken);
       setSelectedSubmission(enrichSubmission({ ...summary, ...payload.submission }));
+      if (location.pathname !== `/submissions/${id}`) navigate(`/submissions/${id}`);
     } finally {
       setSubmissionDetailLoading(false);
     }
@@ -439,6 +440,29 @@ export default function App() {
     />
   );
 
+  function SubmissionDetailRoute() {
+    const { submissionId } = useParams();
+
+    useEffect(() => {
+      if (!authToken || !submissionId) return;
+      selectSubmission(submissionId);
+    }, [authToken, submissionId]);
+
+    return (
+      <SubmissionsPage
+        submissions={submissions}
+        isLoading={submissionsLoading}
+        detailLoading={submissionDetailLoading}
+        selectedSubmission={selectedSubmission}
+        forms={forms}
+        onSelect={selectSubmission}
+        onStatusChange={updateSubmissionStatus}
+        detailOnly
+        onBack={() => navigateToView("submissions")}
+      />
+    );
+  }
+
   const submissionsPage = authToken ? (
     <SubmissionsPage
       submissions={submissions}
@@ -500,6 +524,7 @@ export default function App() {
         <Route path="/start" element={IS_STAFF_APP ? <Navigate to={authToken ? "/submissions" : "/login"} replace /> : welcomePage} />
         <Route path="/intake" element={guardedIntakePage} />
         <Route path="/submissions" element={IS_PATIENT_APP ? <Navigate to="/start" replace /> : submissionsPage} />
+        <Route path="/submissions/:submissionId" element={IS_PATIENT_APP ? <Navigate to="/start" replace /> : authToken ? <SubmissionDetailRoute /> : <Navigate to="/login" replace />} />
         <Route path="/templates" element={IS_PATIENT_APP ? <Navigate to="/start" replace /> : templatesPage} />
         <Route path="/staff" element={IS_PATIENT_APP ? <Navigate to="/start" replace /> : staffPage} />
         <Route path="*" element={<Navigate to={IS_STAFF_APP ? (authToken ? "/submissions" : "/login") : "/start"} replace />} />

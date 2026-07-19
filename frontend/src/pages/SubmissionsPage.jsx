@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { FormField } from "../components/fields/FormField";
 import { fieldOwner, isCalculatedStaffField, isRepeatedDemographicField, isStaffOnlyField } from "../features/forms/fieldMeta";
 import { AsqScoreTable } from "../features/scoring/AsqScoreTable";
+import { calculateAsqScores } from "../features/scoring/asqScoring";
 import { addCalculatedScores } from "../features/scoring/calculatedScores";
 import { scoreInsightsForSubmission } from "../features/scoring/scoreInsights";
 
@@ -48,6 +49,164 @@ function ScoreInsights({ insights }) {
               <span>{insight.value}</span>
             </div>
             <p>{insight.detail}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function scoreStatus(value, threshold, lowerIsConcerning = false) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return "incomplete";
+  return lowerIsConcerning ? parsed < threshold ? "below" : "above" : parsed >= threshold ? "below" : "above";
+}
+
+function addScoreCard(cards, { key, system, label, value, status = "above", detail }) {
+  if (value === null || value === undefined || value === "") return;
+  cards.push({ key, system, label, value: String(value), status, detail });
+}
+
+function scoringCardsForSubmission(submission, answers) {
+  if (!submission) return [];
+  const cards = [];
+
+  calculateAsqScores(submission.formId, answers).forEach((score) => {
+    addScoreCard(cards, {
+      key: `asq-${score.key}`,
+      system: "ASQ-3",
+      label: score.label,
+      value: score.total === null ? "Incomplete" : `${score.total}/60`,
+      status: score.zone.key,
+      detail: score.zone.label
+    });
+  });
+
+  [
+    ["epds_total_score", "EPDS", "Postpartum depression total", 10],
+    ["phq2_total_score", "PHQ-2", "Depression prescreen total", 3],
+    ["phqa_total_score", "PHQ-A", "Adolescent depression total", 10],
+    ["phq9_total_score", "PHQ-9", "Depression total", 10],
+    ["gad7_total_score", "GAD-7", "Anxiety total", 10],
+    ["ppsc_total_score", "PPSC", "Preschool behavioral total", 9],
+    ["psc17_internalizing_score", "PSC-17", "Internalizing", 5],
+    ["psc17_attention_score", "PSC-17", "Attention", 7],
+    ["psc17_externalizing_score", "PSC-17", "Externalizing", 7],
+    ["psc17_total_score", "PSC-17", "Total", 15],
+    ["mchat_risk_score", "M-CHAT", "Autism risk score", 3],
+    ["crafft_part_a_yes_count", "CRAFFT", "Part A yes count", 1],
+    ["crafft_part_b_yes_count", "CRAFFT", "Part B yes count", 2],
+    ["asrs_part_a_positive_count", "ASRS", "Part A positive items", 4],
+    ["asrs_part_b_positive_count", "ASRS", "Part B positive items", 1],
+    ["ace_physical_total", "ACE Concussion", "Physical symptoms", 1],
+    ["ace_cognitive_total", "ACE Concussion", "Cognitive symptoms", 1],
+    ["ace_emotional_total", "ACE Concussion", "Emotional symptoms", 1],
+    ["ace_sleep_total", "ACE Concussion", "Sleep symptoms", 1],
+    ["ace_total_symptom_score", "ACE Concussion", "Total symptoms", 1],
+    ["ace_red_flag_count", "ACE Concussion", "Red flags", 1]
+  ].forEach(([key, system, label, threshold]) => {
+    addScoreCard(cards, {
+      key,
+      system,
+      label,
+      value: answers[key],
+      status: scoreStatus(answers[key], threshold),
+      detail: Number(answers[key]) >= threshold ? "Review threshold met" : "No automatic threshold flag"
+    });
+  });
+
+  [
+    ["act_total_score", "ACT", "Asthma control total", 20],
+    ["cact_total_score", "C-ACT", "Child asthma control total", 20]
+  ].forEach(([key, system, label, threshold]) => {
+    addScoreCard(cards, {
+      key,
+      system,
+      label,
+      value: answers[key],
+      status: scoreStatus(answers[key], threshold, true),
+      detail: answers[key.replace("_total_score", "_control_status")] || "Higher scores indicate better control"
+    });
+  });
+
+  ["child_scared", "parent_scared"].forEach((prefix) => {
+    const system = prefix === "child_scared" ? "Child SCARED" : "Parent SCARED";
+    [
+      ["total_score", "Total", 25],
+      ["panic_somatic_score", "Panic / somatic", 7],
+      ["generalized_anxiety_score", "Generalized anxiety", 9],
+      ["separation_anxiety_score", "Separation anxiety", 5],
+      ["social_anxiety_score", "Social anxiety", 8],
+      ["school_avoidance_score", "School avoidance", 3]
+    ].forEach(([suffix, label, threshold]) => {
+      const key = `${prefix}_${suffix}`;
+      addScoreCard(cards, {
+        key,
+        system,
+        label,
+        value: answers[key],
+        status: scoreStatus(answers[key], threshold),
+        detail: Number(answers[key]) >= threshold ? "Cutoff met" : "Cutoff not met"
+      });
+    });
+  });
+
+  [
+    ["vanderbilt_parent", "Vanderbilt Parent", ["inattention", "hyperactive_impulsive", "oppositional", "conduct", "anxiety_depression"]],
+    ["vanderbilt_teacher", "Vanderbilt Teacher", ["inattention", "hyperactive_impulsive", "oppositional_conduct", "anxiety_depression"]],
+    ["vanderbilt_parent_followup", "Vanderbilt Parent Follow-up", ["inattention", "hyperactive_impulsive", "oppositional"]],
+    ["vanderbilt_teacher_followup", "Vanderbilt Teacher Follow-up", ["inattention", "hyperactive_impulsive", "oppositional_conduct"]]
+  ].forEach(([prefix, system, domains]) => {
+    domains.forEach((domain) => {
+      const key = `${prefix}_${domain}`;
+      addScoreCard(cards, {
+        key,
+        system,
+        label: domain.replaceAll("_", " "),
+        value: answers[key],
+        status: scoreStatus(answers[key], 6),
+        detail: "Count of symptom items scored often/very often"
+      });
+    });
+    addScoreCard(cards, {
+      key: `${prefix}_impairment_present`,
+      system,
+      label: "Performance impairment",
+      value: answers[`${prefix}_impairment_present`],
+      status: answers[`${prefix}_impairment_present`] === "Yes" ? "monitor" : "above",
+      detail: "Based on performance items"
+    });
+  });
+
+  return cards;
+}
+
+function ScoringOverview({ cards }) {
+  if (!cards.length) {
+    return (
+      <section className="scoring-overview empty-scoring-overview">
+        <p className="eyebrow">Calculated scoring</p>
+        <h3>No calculated scores for this form</h3>
+      </section>
+    );
+  }
+
+  return (
+    <section className="scoring-overview">
+      <div className="score-panel-header">
+        <div>
+          <p className="eyebrow">Calculated scoring</p>
+          <h3>Clinical scoring summary</h3>
+        </div>
+        <span className="score-help">{cards.length} calculated value{cards.length === 1 ? "" : "s"}</span>
+      </div>
+      <div className="scoring-card-grid">
+        {cards.map((card) => (
+          <article className={`scoring-card ${card.status}`} key={card.key}>
+            <p>{card.system}</p>
+            <strong>{card.value}</strong>
+            <span>{card.label}</span>
+            <small>{card.detail}</small>
           </article>
         ))}
       </div>
@@ -151,7 +310,7 @@ function exportSubmissionPdf({ submission, form, answers, staffFields, fieldMap,
   win.focus();
 }
 
-export function SubmissionsPage({ submissions, isLoading, detailLoading, selectedSubmission, forms, onSelect, onStatusChange }) {
+export function SubmissionsPage({ submissions, isLoading, detailLoading, selectedSubmission, forms, onSelect, onStatusChange, detailOnly = false, onBack }) {
   const [statusFilter, setStatusFilter] = useState("");
   const [reviewFilter, setReviewFilter] = useState("");
   const [staffDraft, setStaffDraft] = useState({});
@@ -171,6 +330,7 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
   const selectedAnswers = selectedSubmission ? addCalculatedScores(selectedSubmission.formId, selectedSubmission.answers || {}) : {};
   const selectedInsights = selectedSubmission ? scoreInsightsForSubmission(selectedSubmission, selectedForm, selectedAnswers) : [];
   const selectedAuditEvents = selectedSubmission?.auditHistory || selectedSubmission?.audit || [];
+  const scoringCards = selectedSubmission ? scoringCardsForSubmission(selectedSubmission, selectedAnswers) : [];
   const dashboardCounts = reviewCounts(submissions);
   const priorityQueue = submissions
     .filter((submission) => submission.review?.status === "needs-review" || submission.status === "needs-follow-up")
@@ -208,6 +368,106 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
   function handleExportPdf() {
     if (!selectedSubmission) return;
     exportSubmissionPdf({ submission: selectedSubmission, form: selectedForm, answers: selectedAnswers, staffFields, fieldMap, insights: selectedInsights });
+  }
+
+  const detailContent = (
+    <article className={`submission-detail ${detailOnly ? "submission-detail-page" : ""}`}>
+      {detailLoading ? (
+        <div className="empty-state">
+          <h2>Loading details</h2>
+          <p>Opening the selected intake record.</p>
+        </div>
+      ) : !selectedSubmission ? (
+        <div className="empty-state">
+          <h2>No submission selected</h2>
+          <p>Choose a record to see the full patient response payload.</p>
+        </div>
+      ) : (
+        <>
+          <div className="detail-header">
+            <div>
+              <p className="eyebrow">{selectedSubmission.category}</p>
+              <h2>{selectedSubmission.patientName}</h2>
+              <p>{selectedSubmission.formName} - {new Date(selectedSubmission.createdAt).toLocaleString()}</p>
+            </div>
+            <div className="detail-actions">
+              {detailOnly ? <button className="secondary-button" type="button" onClick={onBack}>Back to queue</button> : null}
+              <select className="select-input" aria-label="Submission status" value={selectedSubmission.status} onChange={(event) => onStatusChange(selectedSubmission.id, event.target.value)}>
+                {["new", "in-review", "needs-follow-up", "complete"].map((status) => (
+                  <option value={status} key={status}>{status.replaceAll("-", " ")}</option>
+                ))}
+              </select>
+              <button className="secondary-button" type="button" onClick={handleExportPdf}>Export PDF</button>
+            </div>
+          </div>
+          <section className={`review-panel ${selectedSubmission.review?.status || "routine"}`}>
+            <div>
+              <p className="eyebrow">Review status</p>
+              <h3>{selectedSubmission.review?.label || "Routine"}</h3>
+            </div>
+            {selectedSubmission.review?.flags?.length ? (
+              <div className="review-flag-list">
+                {selectedSubmission.review.flags.map((flag) => <span className={`review-flag ${flag.severity}`} key={flag.key}>{flag.label}</span>)}
+              </div>
+            ) : <span className="review-flag low">No automatic flags</span>}
+          </section>
+          <ScoringOverview cards={scoringCards} />
+          <AsqScoreTable formId={selectedSubmission.formId} answers={selectedAnswers} submitted />
+          <ScoreInsights insights={selectedInsights} />
+          <AuditHistory events={selectedAuditEvents} />
+          {staffFields.length ? (
+            <section className="review-edit-panel">
+              <div className="detail-header compact-detail-header">
+                <div>
+                  <p className="eyebrow">Staff review</p>
+                  <h3>Staff responses</h3>
+                </div>
+                <button className="primary-button" type="button" onClick={saveStaffReview} disabled={staffSaving}>
+                  {staffSaving ? "Saving" : "Save review"}
+                </button>
+              </div>
+              <div className="field-grid">
+                {staffFields.map((field) => (
+                  <FormField
+                    field={field}
+                    key={field.id}
+                    value={staffDraft[field.id]}
+                    readOnly={isCalculatedStaffField(field)}
+                    onChange={(fieldId, value) => setStaffDraft((current) => ({ ...current, [fieldId]: value }))}
+                  />
+                ))}
+              </div>
+              {staffMessage ? <div className="message" role="status">{staffMessage}</div> : null}
+            </section>
+          ) : null}
+          <div className="answer-list">
+            {Object.entries(selectedAnswers).filter(([key]) => {
+              const field = fieldMap.get(key);
+              return !field || !isRepeatedDemographicField(field, field.section);
+            }).map(([key, value]) => {
+              const field = fieldMap.get(key);
+              const owner = field ? fieldOwner(field, field.section) : "patient";
+              return (
+                <div className="answer-row" key={key}>
+                  <strong>{field?.label || key} <span className={`field-owner ${owner}`}>{owner}</span></strong>
+                  <span>{displayAnswer(value)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </article>
+  );
+
+  if (detailOnly) {
+    return (
+      <section className="view active" aria-label="Submission detail">
+        <div className="panel submission-detail-shell">
+          {detailContent}
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -300,89 +560,7 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
             )}
           </div>
 
-          <article className="submission-detail">
-            {detailLoading ? (
-              <div className="empty-state">
-                <h2>Loading details</h2>
-                <p>Opening the selected intake record.</p>
-              </div>
-            ) : !selectedSubmission ? (
-              <div className="empty-state">
-                <h2>No submission selected</h2>
-                <p>Choose a record to see the full patient response payload.</p>
-              </div>
-            ) : (
-              <>
-                <div className="detail-header">
-                  <div>
-                    <p className="eyebrow">{selectedSubmission.category}</p>
-                    <h2>{selectedSubmission.patientName}</h2>
-                    <p>{selectedSubmission.formName} - {new Date(selectedSubmission.createdAt).toLocaleString()}</p>
-                  </div>
-                  <select className="select-input" aria-label="Submission status" value={selectedSubmission.status} onChange={(event) => onStatusChange(selectedSubmission.id, event.target.value)}>
-                    {["new", "in-review", "needs-follow-up", "complete"].map((status) => (
-                      <option value={status} key={status}>{status.replaceAll("-", " ")}</option>
-                    ))}
-                  </select>
-                  <button className="secondary-button" type="button" onClick={handleExportPdf}>Export PDF</button>
-                </div>
-                <section className={`review-panel ${selectedSubmission.review?.status || "routine"}`}>
-                  <div>
-                    <p className="eyebrow">Review status</p>
-                    <h3>{selectedSubmission.review?.label || "Routine"}</h3>
-                  </div>
-                  {selectedSubmission.review?.flags?.length ? (
-                    <div className="review-flag-list">
-                      {selectedSubmission.review.flags.map((flag) => <span className={`review-flag ${flag.severity}`} key={flag.key}>{flag.label}</span>)}
-                    </div>
-                  ) : <span className="review-flag low">No automatic flags</span>}
-                </section>
-                <AuditHistory events={selectedAuditEvents} />
-                <AsqScoreTable formId={selectedSubmission.formId} answers={selectedAnswers} submitted />
-                <ScoreInsights insights={selectedInsights} />
-                {staffFields.length ? (
-                  <section className="review-edit-panel">
-                    <div className="detail-header compact-detail-header">
-                      <div>
-                        <p className="eyebrow">Staff review</p>
-                        <h3>Staff responses</h3>
-                      </div>
-                      <button className="primary-button" type="button" onClick={saveStaffReview} disabled={staffSaving}>
-                        {staffSaving ? "Saving" : "Save review"}
-                      </button>
-                    </div>
-                    <div className="field-grid">
-                      {staffFields.map((field) => (
-                        <FormField
-                          field={field}
-                          key={field.id}
-                          value={staffDraft[field.id]}
-                          readOnly={isCalculatedStaffField(field)}
-                          onChange={(fieldId, value) => setStaffDraft((current) => ({ ...current, [fieldId]: value }))}
-                        />
-                      ))}
-                    </div>
-                    {staffMessage ? <div className="message" role="status">{staffMessage}</div> : null}
-                  </section>
-                ) : null}
-                <div className="answer-list">
-                  {Object.entries(selectedAnswers).filter(([key]) => {
-                    const field = fieldMap.get(key);
-                    return !field || !isRepeatedDemographicField(field, field.section);
-                  }).map(([key, value]) => {
-                    const field = fieldMap.get(key);
-                    const owner = field ? fieldOwner(field, field.section) : "patient";
-                    return (
-                      <div className="answer-row" key={key}>
-                        <strong>{field?.label || key} <span className={`field-owner ${owner}`}>{owner}</span></strong>
-                        <span>{displayAnswer(value)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </article>
+          {detailContent}
         </div>
       </div>
     </section>

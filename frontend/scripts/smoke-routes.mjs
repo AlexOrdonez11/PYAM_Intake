@@ -1,7 +1,7 @@
 const frontendBaseUrl = process.env.FRONTEND_BASE_URL || "http://127.0.0.1:5178";
 const apiBaseUrl = process.env.PYAM_API_BASE_URL || "http://127.0.0.1:5177";
 
-const routes = ["/login", "/start", "/intake", "/submissions", "/templates", "/staff"];
+const routes = ["/login", "/start", "/intake", "/submissions", "/submissions/example-submission-id", "/templates", "/staff"];
 
 async function checkUrl(url, predicate, label) {
   const response = await fetch(url);

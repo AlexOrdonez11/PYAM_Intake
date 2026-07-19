@@ -1619,12 +1619,29 @@ textarea.field-control {
   min-width: 0;
 }
 
+.submission-detail-shell {
+  padding: 0;
+}
+
+.submission-detail-page {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
 .detail-header {
   display: flex;
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
   margin-bottom: 18px;
+}
+
+.detail-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
 .review-panel {
@@ -1778,6 +1795,96 @@ textarea.field-control {
 .score-insight.above {
   background: #f0fbf5;
   border-color: #b7dfc6;
+}
+
+.scoring-overview {
+  border: 1px solid #bfd0e6;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+  box-shadow: var(--shadow-soft);
+  padding: 18px;
+  margin: 14px 0 18px;
+}
+
+.empty-scoring-overview {
+  box-shadow: none;
+}
+
+.empty-scoring-overview h3 {
+  margin: 4px 0 0;
+}
+
+.scoring-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.scoring-card {
+  border: 1px solid #d8e2f0;
+  border-left: 5px solid var(--brand-blue);
+  border-radius: 12px;
+  background: #ffffff;
+  display: grid;
+  gap: 6px;
+  min-height: 128px;
+  padding: 14px;
+}
+
+.scoring-card p,
+.scoring-card span,
+.scoring-card small {
+  margin: 0;
+}
+
+.scoring-card p {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.scoring-card strong {
+  color: var(--ink);
+  font-size: 30px;
+  line-height: 1;
+}
+
+.scoring-card span {
+  color: var(--ink);
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.scoring-card small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.scoring-card.below {
+  background: #fff3f4;
+  border-color: #f1c7cd;
+  border-left-color: #b42332;
+}
+
+.scoring-card.monitor {
+  background: #fff9e8;
+  border-color: #eed38a;
+  border-left-color: #c07b00;
+}
+
+.scoring-card.above {
+  background: #f2fbf6;
+  border-color: #b7dfc6;
+  border-left-color: #2f7d4f;
+}
+
+.scoring-card.incomplete {
+  background: #f7f9fc;
+  border-color: #d8e2f0;
+  border-left-color: #7b8aa3;
 }
 
 .audit-panel {
