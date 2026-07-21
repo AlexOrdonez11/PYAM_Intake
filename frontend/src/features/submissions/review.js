@@ -2,6 +2,9 @@ import { calculateAsqScores } from "../scoring/asqScoring";
 import { calculateEpdsTotal } from "../scoring/behavioralScoring";
 
 export function reviewFlagsForSubmission(submission) {
+  if (submission.status === "draft") {
+    return { flags: [], status: "draft", label: "Draft" };
+  }
   const answers = submission.answers || {};
   const flags = [];
   const asqScores = calculateAsqScores(submission.formId, answers);
@@ -57,16 +60,15 @@ export function reviewFlagsForSubmission(submission) {
     flags.push({ key: "sdoh", type: "social", severity: "medium", label: "SDOH help requested" });
   }
 
-  if (submission.status === "needs-follow-up") {
-    flags.push({ key: "status-follow-up", type: "status", severity: "high", label: "Marked follow-up" });
+  if (["needs-follow-up", "needs-patient-follow-up"].includes(submission.status)) {
+    flags.push({ key: "status-follow-up", type: "status", severity: "high", label: "Needs patient follow-up" });
   }
 
   const hasReviewFlag = flags.some((flag) => ["high", "medium"].includes(flag.severity));
-  return {
-    flags,
-    status: hasReviewFlag ? "needs-review" : submission.status === "complete" ? "complete" : "routine",
-    label: hasReviewFlag ? "Needs review" : submission.status === "complete" ? "Complete" : "Routine"
-  };
+  if (hasReviewFlag) return { flags, status: "needs-review", label: "Needs review" };
+  if (submission.status === "ready-for-chart") return { flags, status: "ready-for-chart", label: "Ready for chart" };
+  if (submission.status === "complete") return { flags, status: "complete", label: "Completed" };
+  return { flags, status: "routine", label: "Routine" };
 }
 
 export function enrichSubmission(submission) {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { FormRenderer } from "../features/forms/FormRenderer";
 
 const FIELD_TYPES = ["text", "email", "tel", "date", "number", "datetime-local", "textarea", "select", "radio", "multicheck", "checkbox", "scale", "signature"];
 
@@ -29,8 +30,115 @@ function hasScoringSensitiveFields(template) {
   );
 }
 
+function fieldMapForTemplate(template) {
+  const fields = new Map();
+  for (const section of template?.sections || []) {
+    for (const field of section.fields || []) {
+      fields.set(field.id, { ...field, section: section.title || "" });
+    }
+  }
+  return fields;
+}
+
+function changedOptions(before = [], after = []) {
+  return JSON.stringify(before || []) !== JSON.stringify(after || []);
+}
+
+function templateChangeSummary(original, draft) {
+  const originalFields = fieldMapForTemplate(original);
+  const draftFields = fieldMapForTemplate(draft);
+  const added = [];
+  const removed = [];
+  const changed = [];
+  let scoringSensitive = false;
+
+  for (const [fieldId, field] of draftFields.entries()) {
+    const previous = originalFields.get(fieldId);
+    if (!previous) {
+      added.push(field);
+      continue;
+    }
+    const changes = [];
+    if (previous.label !== field.label) changes.push("label");
+    if (previous.type !== field.type) changes.push("type");
+    if (Boolean(previous.required) !== Boolean(field.required)) changes.push("required");
+    if ((previous.owner || "patient") !== (field.owner || "patient") || Boolean(previous.staffOnly) !== Boolean(field.staffOnly)) changes.push("owner");
+    if (changedOptions(previous.options, field.options)) changes.push("options");
+    if (changes.length) {
+      changed.push({ field, changes });
+      if (changes.some((change) => ["type", "options"].includes(change)) && hasScoringSensitiveFields({ sections: [{ fields: [field] }] })) {
+        scoringSensitive = true;
+      }
+    }
+  }
+
+  for (const [fieldId, field] of originalFields.entries()) {
+    if (!draftFields.has(fieldId)) {
+      removed.push(field);
+      if (hasScoringSensitiveFields({ sections: [{ fields: [field] }] })) scoringSensitive = true;
+    }
+  }
+
+  const sectionCountChanged = (original?.sections || []).length !== (draft?.sections || []).length;
+  return {
+    added,
+    removed,
+    changed,
+    sectionCountChanged,
+    scoringSensitive,
+    total: added.length + removed.length + changed.length + (sectionCountChanged ? 1 : 0)
+  };
+}
+
 function updateArrayItem(items, index, updater) {
   return items.map((item, itemIndex) => (itemIndex === index ? updater(item) : item));
+}
+
+function moveArrayItem(items, fromIndex, toIndex) {
+  if (toIndex < 0 || toIndex >= items.length) return items;
+  const next = [...items];
+  const [item] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, item);
+  return next;
+}
+
+function templateIssues(template) {
+  const issues = [];
+  if (!template.id) issues.push({ severity: "error", text: "Template id is required." });
+  if (!template.name) issues.push({ severity: "error", text: "Template name is required." });
+  if (!template.category) issues.push({ severity: "error", text: "Category is required." });
+  if (!(template.sections || []).length) issues.push({ severity: "error", text: "At least one section is required." });
+
+  const fieldIds = [];
+  (template.sections || []).forEach((section, sectionIndex) => {
+    if (!section.title) issues.push({ severity: "error", text: `Section ${sectionIndex + 1} needs a title.` });
+    (section.fields || []).forEach((field, fieldIndex) => {
+      if (!field.id) issues.push({ severity: "error", text: `Field ${fieldIndex + 1} in ${section.title || `section ${sectionIndex + 1}`} needs an id.` });
+      if (!field.label) issues.push({ severity: "error", text: `Field ${field.id || fieldIndex + 1} needs a label.` });
+      if (!FIELD_TYPES.includes(field.type)) issues.push({ severity: "error", text: `${field.id || field.label} uses unsupported type ${field.type}.` });
+      if (["radio", "select", "multicheck", "scale"].includes(field.type) && !(field.options || []).length) {
+        issues.push({ severity: "warning", text: `${field.label || field.id} has no options yet.` });
+      }
+      if (field.id) fieldIds.push(field.id);
+    });
+  });
+
+  const duplicates = [...new Set(fieldIds.filter((id, index) => fieldIds.indexOf(id) !== index))];
+  duplicates.forEach((id) => issues.push({ severity: "error", text: `Duplicate field id: ${id}.` }));
+  if (hasScoringSensitiveFields(template)) {
+    issues.push({ severity: "warning", text: "Scoring-sensitive fields are present. Avoid changing field IDs or option text unless you also update scoring rules." });
+  }
+  return issues;
+}
+
+function initialPreviewAnswers(form) {
+  const answers = {};
+  for (const section of form.sections || []) {
+    for (const field of section.fields || []) {
+      answers[field.id] = field.type === "multicheck" ? [] : field.type === "checkbox" ? false : "";
+    }
+  }
+  return answers;
 }
 
 function AdminOnlyNotice() {
@@ -42,12 +150,120 @@ function AdminOnlyNotice() {
   );
 }
 
-function TemplateEditor({ draft, onChange, onSave, onReset, saving, message, error }) {
+function DraftManager({ drafts, selectedDraftId, onOpenDraft, onDeleteDraft }) {
+  return (
+    <section className="template-draft-manager">
+      <div>
+        <p className="eyebrow">Draft manager</p>
+        <h3>{drafts.length} saved draft{drafts.length === 1 ? "" : "s"}</h3>
+      </div>
+      {drafts.length ? (
+        <div className="template-draft-list">
+          {drafts.map((draft) => (
+            <article className={`template-draft-card ${selectedDraftId === draft.id ? "active" : ""}`} key={draft.id}>
+              <div>
+                <strong>{draft.name}</strong>
+                <span>{draft.category} - v{draft.version || 1}</span>
+                <small>{draft.updatedAt ? `Saved ${new Date(draft.updatedAt).toLocaleString()}` : `${fieldCount(draft)} fields`}</small>
+              </div>
+              <div className="template-draft-actions">
+                <button className="secondary-button" type="button" onClick={() => onOpenDraft(draft)}>Open</button>
+                <button className="ghost-button" type="button" onClick={() => onDeleteDraft(draft)}>Discard</button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="template-draft-empty">Saved template drafts will appear here before they are published.</p>
+      )}
+    </section>
+  );
+}
+
+function TemplateVersionHistory({ versions, activeVersion, onOpenVersion, onRefresh }) {
+  return (
+    <section className="template-version-history">
+      <div className="template-version-header">
+        <div>
+          <p className="eyebrow">Version history</p>
+          <h3>{versions.length ? `${versions.length} saved version${versions.length === 1 ? "" : "s"}` : "No history loaded"}</h3>
+        </div>
+        <button className="secondary-button" type="button" onClick={onRefresh}>Refresh</button>
+      </div>
+      {versions.length ? (
+        <div className="template-version-list">
+          {versions.map((version) => (
+            <article className={`template-version-card ${version.status || "archived"}`} key={`${version.status}-${version.version}-${version.updatedAt || version.createdAt}`}>
+              <div>
+                <strong>v{version.version || 1} - {version.status || "archived"}</strong>
+                <span>{fieldCount(version)} fields - {contentCount(version)} notes</span>
+                <small>{version.updatedAt ? `Updated ${new Date(version.updatedAt).toLocaleString()}` : "No update timestamp"}</small>
+              </div>
+              <div className="template-version-actions">
+                {activeVersion?.version === version.version && activeVersion?.status === version.status ? <span className="template-version-current">Open</span> : null}
+                <button className="secondary-button" type="button" onClick={() => onOpenVersion(version)}>Open as draft</button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="template-draft-empty">Refresh to load active, draft, and archived versions for the selected form.</p>
+      )}
+    </section>
+  );
+}
+
+function ChangeSummary({ summary }) {
+  if (!summary.total) {
+    return (
+      <section className="template-change-panel quiet">
+        <div>
+          <p className="eyebrow">Change summary</p>
+          <h3>No unsaved changes</h3>
+        </div>
+        <p>The draft matches the selected active template.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className={`template-change-panel ${summary.scoringSensitive ? "sensitive" : ""}`}>
+      <div>
+        <p className="eyebrow">Change summary</p>
+        <h3>{summary.total} unsaved change{summary.total === 1 ? "" : "s"}</h3>
+      </div>
+      <div className="template-change-grid">
+        <span><strong>{summary.added.length}</strong> added</span>
+        <span><strong>{summary.changed.length}</strong> changed</span>
+        <span><strong>{summary.removed.length}</strong> removed</span>
+        <span><strong>{summary.sectionCountChanged ? "Yes" : "No"}</strong> section layout</span>
+      </div>
+      {summary.scoringSensitive ? <p className="template-sensitive-note">Scoring-sensitive fields changed. Save a draft and preview before publishing.</p> : null}
+      <ul className="template-change-list">
+        {summary.added.slice(0, 3).map((field) => <li key={`added-${field.id}`}>Added: {field.label || field.id}</li>)}
+        {summary.changed.slice(0, 3).map(({ field, changes }) => <li key={`changed-${field.id}`}>Changed: {field.label || field.id} ({changes.join(", ")})</li>)}
+        {summary.removed.slice(0, 3).map((field) => <li key={`removed-${field.id}`}>Removed: {field.label || field.id}</li>)}
+      </ul>
+    </section>
+  );
+}
+
+function TemplateEditor({ original, draft, onChange, onSave, onSaveDraft, onReset, saving, message, error }) {
   const [jsonOpen, setJsonOpen] = useState(false);
   const [jsonDraft, setJsonDraft] = useState("");
+  const [activeTab, setActiveTab] = useState("builder");
+  const [previewMode, setPreviewMode] = useState("patient");
+  const [previewAnswers, setPreviewAnswers] = useState({});
+  const [publishConfirmed, setPublishConfirmed] = useState(false);
+  const issues = templateIssues(draft);
+  const publishErrors = issues.filter((issue) => issue.severity === "error");
+  const changeSummary = templateChangeSummary(original, draft);
+  const publishBlockedByConfirmation = changeSummary.scoringSensitive && !publishConfirmed;
 
   useEffect(() => {
     setJsonDraft(JSON.stringify(draft, null, 2));
+    setPreviewAnswers(initialPreviewAnswers(draft));
+    setPublishConfirmed(false);
   }, [draft]);
 
   function patchTemplate(updater) {
@@ -86,6 +302,34 @@ function TemplateEditor({ draft, onChange, onSave, onReset, saving, message, err
     });
   }
 
+  function duplicateField(sectionIndex, fieldIndex) {
+    patchSection(sectionIndex, (section) => {
+      const fields = section.fields || [];
+      const source = cloneTemplate(fields[fieldIndex]);
+      const copy = {
+        ...source,
+        id: `${source.id || "field"}_copy_${Date.now()}`,
+        label: `${source.label || "Question"} copy`
+      };
+      section.fields = [...fields.slice(0, fieldIndex + 1), copy, ...fields.slice(fieldIndex + 1)];
+      return section;
+    });
+  }
+
+  function moveSection(sectionIndex, direction) {
+    patchTemplate((next) => {
+      next.sections = moveArrayItem(next.sections || [], sectionIndex, sectionIndex + direction);
+      return next;
+    });
+  }
+
+  function moveField(sectionIndex, fieldIndex, direction) {
+    patchSection(sectionIndex, (section) => {
+      section.fields = moveArrayItem(section.fields || [], fieldIndex, fieldIndex + direction);
+      return section;
+    });
+  }
+
   function addNote(sectionIndex) {
     patchSection(sectionIndex, (section) => {
       section.content = [...(section.content || []), { type: "note", title: "Note", text: "", variant: "disclaimer" }];
@@ -113,17 +357,80 @@ function TemplateEditor({ draft, onChange, onSave, onReset, saving, message, err
         <div className="detail-actions">
           <button className="secondary-button" type="button" onClick={() => setJsonOpen((open) => !open)}>Advanced JSON</button>
           <button className="secondary-button" type="button" onClick={onReset}>Reset</button>
-          <button className="primary-button" type="button" onClick={onSave} disabled={saving}>{saving ? "Publishing" : "Publish new version"}</button>
+          <button className="secondary-button" type="button" onClick={onSaveDraft} disabled={saving || publishErrors.length > 0}>{saving ? "Saving" : "Save draft"}</button>
+          <button className="primary-button" type="button" onClick={onSave} disabled={saving || publishErrors.length > 0 || publishBlockedByConfirmation}>{saving ? "Publishing" : "Publish new version"}</button>
         </div>
       </div>
 
       {message ? <div className={`message ${error ? "error" : ""}`} role="status">{message}</div> : null}
-      {hasScoringSensitiveFields(draft) ? (
-        <div className="template-warning" role="note">
-          This form has calculated scoring. Edit labels freely, but be careful changing field IDs, option text, or score fields because calculations depend on them.
+      <ChangeSummary summary={changeSummary} />
+      {changeSummary.scoringSensitive ? (
+        <label className="template-publish-confirm">
+          <input type="checkbox" checked={publishConfirmed} onChange={(event) => setPublishConfirmed(event.target.checked)} />
+          <span>I reviewed scoring-sensitive changes and verified the preview.</span>
+        </label>
+      ) : null}
+      <div className="template-editor-tabs" role="tablist" aria-label="Template editor views">
+        {[
+          ["builder", "Builder"],
+          ["preview", "Preview"],
+          ["readiness", `Readiness ${publishErrors.length ? `(${publishErrors.length})` : ""}`]
+        ].map(([tab, label]) => (
+          <button className={activeTab === tab ? "active" : ""} key={tab} type="button" onClick={() => setActiveTab(tab)}>{label}</button>
+        ))}
+      </div>
+
+      {issues.length ? (
+        <div className="template-issue-list" role="note">
+          {issues.slice(0, activeTab === "readiness" ? issues.length : 3).map((issue, index) => (
+            <span className={issue.severity} key={`${issue.text}-${index}`}>{issue.text}</span>
+          ))}
         </div>
+      ) : (
+        <div className="template-ready-banner" role="note">Template looks ready to publish.</div>
+      )}
+
+      {activeTab === "preview" ? (
+        <section className="template-preview-panel">
+          <div className="template-preview-toolbar">
+            <div>
+              <p className="eyebrow">Live preview</p>
+              <h3>{previewMode === "staff" ? "Staff view" : "Patient view"}</h3>
+            </div>
+            <div className="segmented-control">
+              {["patient", "staff"].map((mode) => (
+                <button className={previewMode === mode ? "active" : ""} type="button" key={mode} onClick={() => setPreviewMode(mode)}>{mode}</button>
+              ))}
+            </div>
+          </div>
+          <FormRenderer
+            form={draft}
+            answers={previewAnswers}
+            mode={previewMode}
+            onAnswerChange={(fieldId, value) => setPreviewAnswers((current) => ({ ...current, [fieldId]: value }))}
+            onSubmit={(event) => event.preventDefault()}
+            onClear={() => setPreviewAnswers(initialPreviewAnswers(draft))}
+            message=""
+            error={false}
+          />
+        </section>
       ) : null}
 
+      {activeTab === "readiness" ? (
+        <section className="template-readiness-panel">
+          <h3>Publish readiness</h3>
+          <p>{publishErrors.length ? "Resolve the blocking items before publishing." : "No blocking issues found. Warnings are reminders for careful clinical review."}</p>
+          <div className="template-readiness-grid">
+            <span><strong>{(draft.sections || []).length}</strong> sections</span>
+            <span><strong>{fieldCount(draft)}</strong> fields</span>
+            <span><strong>{contentCount(draft)}</strong> notes</span>
+            <span><strong>{publishErrors.length}</strong> blocking issues</span>
+          </div>
+        </section>
+      ) : null}
+
+      {activeTab === "builder" ? (
+      <>
       <div className="template-editor-grid">
         <label className="field">
           <span>Name</span>
@@ -171,6 +478,8 @@ function TemplateEditor({ draft, onChange, onSave, onReset, saving, message, err
                 onChange={(event) => patchSection(sectionIndex, (nextSection) => ({ ...nextSection, title: event.target.value }))}
               />
               <div className="detail-actions">
+                <button className="secondary-button icon-button-text" type="button" onClick={() => moveSection(sectionIndex, -1)} disabled={sectionIndex === 0}>Move up</button>
+                <button className="secondary-button icon-button-text" type="button" onClick={() => moveSection(sectionIndex, 1)} disabled={sectionIndex === (draft.sections || []).length - 1}>Move down</button>
                 <button className="secondary-button" type="button" onClick={() => addNote(sectionIndex)}>Add note</button>
                 <button className="secondary-button" type="button" onClick={() => addField(sectionIndex)}>Add field</button>
                 <button className="ghost-button" type="button" onClick={() => patchTemplate((next) => ({ ...next, sections: next.sections.filter((_, index) => index !== sectionIndex) }))}>Remove</button>
@@ -207,6 +516,9 @@ function TemplateEditor({ draft, onChange, onSave, onReset, saving, message, err
                   <div className="template-field-flags">
                     <label className="choice-option"><input type="checkbox" checked={Boolean(field.required)} onChange={(event) => patchField(sectionIndex, fieldIndex, (nextField) => ({ ...nextField, required: event.target.checked }))} /><span>Required</span></label>
                     <label className="choice-option"><input type="checkbox" checked={field.owner === "staff" || field.staffOnly === true} onChange={(event) => patchField(sectionIndex, fieldIndex, (nextField) => ({ ...nextField, owner: event.target.checked ? "staff" : "patient", staffOnly: event.target.checked || undefined }))} /><span>Staff-only</span></label>
+                    <button className="secondary-button icon-button-text" type="button" onClick={() => moveField(sectionIndex, fieldIndex, -1)} disabled={fieldIndex === 0}>Move up</button>
+                    <button className="secondary-button icon-button-text" type="button" onClick={() => moveField(sectionIndex, fieldIndex, 1)} disabled={fieldIndex === (section.fields || []).length - 1}>Move down</button>
+                    <button className="secondary-button icon-button-text" type="button" onClick={() => duplicateField(sectionIndex, fieldIndex)}>Duplicate</button>
                     <button className="ghost-button" type="button" onClick={() => patchSection(sectionIndex, (nextSection) => ({ ...nextSection, fields: (nextSection.fields || []).filter((_, index) => index !== fieldIndex) }))}>Remove field</button>
                   </div>
                   {["radio", "select", "multicheck", "scale"].includes(field.type) ? (
@@ -222,11 +534,13 @@ function TemplateEditor({ draft, onChange, onSave, onReset, saving, message, err
         ))}
       </div>
       <button className="secondary-button" type="button" onClick={addSection}>Add section</button>
+      </>
+      ) : null}
     </article>
   );
 }
 
-export function TemplatesPage({ forms, user, onSaveTemplate }) {
+export function TemplatesPage({ forms, templateDrafts = [], templateVersions = {}, user, onSaveTemplate, onLoadDrafts, onLoadVersions, onDeleteDraft }) {
   const [selectedFormId, setSelectedFormId] = useState(forms[0]?.id || "");
   const selectedForm = useMemo(() => forms.find((form) => form.id === selectedFormId) || forms[0], [forms, selectedFormId]);
   const [draft, setDraft] = useState(() => cloneTemplate(selectedForm));
@@ -244,6 +558,53 @@ export function TemplatesPage({ forms, user, onSaveTemplate }) {
     setMessage("");
     setError(false);
   }, [selectedForm]);
+
+  useEffect(() => {
+    if (isAdmin) onLoadDrafts?.();
+  }, [isAdmin, onLoadDrafts]);
+
+  useEffect(() => {
+    if (isAdmin && selectedForm?.id) onLoadVersions?.(selectedForm.id);
+  }, [isAdmin, onLoadVersions, selectedForm?.id]);
+
+  function openDraft(templateDraft) {
+    setSelectedFormId(templateDraft.id);
+    setDraft(cloneTemplate(templateDraft));
+    setMessage(`Opened saved draft for ${templateDraft.name}.`);
+    setError(false);
+  }
+
+  function openPublishedForm(form) {
+    setSelectedFormId(form.id);
+    setDraft(cloneTemplate(form));
+    setMessage("");
+    setError(false);
+  }
+
+  function openVersion(version) {
+    setSelectedFormId(version.id);
+    setDraft(cloneTemplate({ ...version, status: "draft" }));
+    setMessage(`Opened version ${version.version || 1} as an editable draft. Save draft or publish to keep changes.`);
+    setError(false);
+  }
+
+  async function discardDraft(templateDraft) {
+    const confirmed = window.confirm(`Discard the saved draft for ${templateDraft.name}? The active published form will stay unchanged.`);
+    if (!confirmed) return;
+    setSaving(true);
+    setMessage("");
+    setError(false);
+    try {
+      await onDeleteDraft(templateDraft.id);
+      if (selectedForm?.id === templateDraft.id) setDraft(cloneTemplate(selectedForm));
+      setMessage(`Draft discarded for ${templateDraft.name}.`);
+    } catch (deleteError) {
+      setError(true);
+      setMessage(deleteError.message || "Unable to discard draft.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function saveTemplate() {
     if (!selectedForm || !isAdmin) return;
@@ -265,6 +626,26 @@ export function TemplatesPage({ forms, user, onSaveTemplate }) {
     }
   }
 
+  async function saveDraft() {
+    if (!selectedForm || !isAdmin) return;
+    setSaving(true);
+    setMessage("");
+    setError(false);
+    try {
+      const payload = await onSaveTemplate(draft, { publish: false });
+      setDraft(cloneTemplate(payload.form));
+      setMessage([
+        `Draft saved for ${payload.form.name}. Patient-facing forms are unchanged until you publish.`,
+        ...(payload.warnings || [])
+      ].join(" "));
+    } catch (saveError) {
+      setError(true);
+      setMessage(saveError.message || "Unable to save draft.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <section className="view active" aria-label="Templates">
       <div className="panel">
@@ -280,20 +661,40 @@ export function TemplatesPage({ forms, user, onSaveTemplate }) {
 
         <div className="template-admin-layout">
           <aside className="template-admin-list">
+            {isAdmin ? (
+              <>
+                <DraftManager
+                  drafts={templateDrafts}
+                  selectedDraftId={draft?.status === "draft" ? draft.id : ""}
+                  onOpenDraft={openDraft}
+                  onDeleteDraft={discardDraft}
+                />
+                {selectedForm ? (
+                  <TemplateVersionHistory
+                    versions={templateVersions[selectedForm.id] || []}
+                    activeVersion={draft}
+                    onOpenVersion={openVersion}
+                    onRefresh={() => onLoadVersions?.(selectedForm.id)}
+                  />
+                ) : null}
+              </>
+            ) : null}
             {forms.map((form) => (
-              <button className={`template-card compact ${form.id === selectedForm?.id ? "active" : ""}`} key={form.id} onClick={() => setSelectedFormId(form.id)} type="button">
+              <button className={`template-card compact ${form.id === selectedForm?.id && draft?.status !== "draft" ? "active" : ""}`} key={form.id} onClick={() => openPublishedForm(form)} type="button">
                 <strong>{form.name}</strong>
                 <span>{form.category}</span>
-                <small>{fieldCount(form)} fields - {contentCount(form)} notes</small>
+                <small>{fieldCount(form)} fields - {contentCount(form)} notes{templateDrafts.some((item) => item.id === form.id) ? " - draft saved" : ""}</small>
               </button>
             ))}
           </aside>
           <div>
             {!isAdmin ? <AdminOnlyNotice /> : selectedForm ? (
               <TemplateEditor
+                original={selectedForm}
                 draft={draft}
                 onChange={setDraft}
                 onSave={saveTemplate}
+                onSaveDraft={saveDraft}
                 onReset={() => setDraft(cloneTemplate(selectedForm))}
                 saving={saving}
                 message={message}

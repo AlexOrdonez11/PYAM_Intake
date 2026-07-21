@@ -334,6 +334,8 @@ def add_calculated_scores(form_id: str, answers: dict[str, Any]) -> dict[str, An
 
 
 def review_for_submission(submission: dict[str, Any]) -> dict[str, Any]:
+    if submission.get("status") == "draft":
+        return {"flags": [], "status": "draft", "label": "Draft"}
     answers = submission.get("answers") or {}
     flags: list[dict[str, str]] = []
     asq_scores = calculate_asq_scores(submission.get("formId", ""), answers)
@@ -372,11 +374,19 @@ def review_for_submission(submission: dict[str, Any]) -> dict[str, Any]:
         flags.append({"key": "mchat-medium", "type": "behavioral", "severity": "medium", "label": "M-CHAT medium risk"})
     if answers.get("sdoh_help_wanted") == "Yes":
         flags.append({"key": "sdoh", "type": "social", "severity": "medium", "label": "SDOH help requested"})
-    if submission.get("status") == "needs-follow-up":
-        flags.append({"key": "status-follow-up", "type": "status", "severity": "high", "label": "Marked follow-up"})
+    if submission.get("status") in {"needs-follow-up", "needs-patient-follow-up"}:
+        flags.append({"key": "status-follow-up", "type": "status", "severity": "high", "label": "Needs patient follow-up"})
     has_review_flag = any(flag["severity"] in {"high", "medium"} for flag in flags)
-    return {
-        "flags": flags,
-        "status": "needs-review" if has_review_flag else "complete" if submission.get("status") == "complete" else "routine",
-        "label": "Needs review" if has_review_flag else "Complete" if submission.get("status") == "complete" else "Routine",
-    }
+    if has_review_flag:
+        review_status = "needs-review"
+        review_label = "Needs review"
+    elif submission.get("status") == "ready-for-chart":
+        review_status = "ready-for-chart"
+        review_label = "Ready for chart"
+    elif submission.get("status") == "complete":
+        review_status = "complete"
+        review_label = "Completed"
+    else:
+        review_status = "routine"
+        review_label = "Routine"
+    return {"flags": flags, "status": review_status, "label": review_label}

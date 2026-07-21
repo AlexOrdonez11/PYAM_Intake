@@ -11,6 +11,7 @@ export function IntakePage({
   showAllForms,
   routingComplete,
   recommendedFormIds,
+  completedFormIds,
   answers,
   mode,
   onAnswerChange,
@@ -18,7 +19,12 @@ export function IntakePage({
   onClear,
   onStartOver,
   message,
-  error
+  error,
+  completionNotice,
+  draftNotice,
+  resumeSaving,
+  onSaveResumeDraft,
+  onDiscardDraft
 }) {
   const query = search.trim().toLowerCase();
   const baseForms = showAllForms ? forms : forms.filter((form) => recommendedFormIds.includes(form.id));
@@ -59,8 +65,11 @@ export function IntakePage({
           </div>
           <div className="form-list">
             {visibleForms.length ? visibleForms.map((form) => (
-              <button className={`form-card ${form.id === selectedFormId ? "active" : ""}`} key={form.id} onClick={() => setSelectedFormId(form.id)} type="button">
-                <strong>{form.name}</strong>
+              <button className={`form-card ${form.id === selectedFormId ? "active" : ""} ${completedFormIds.includes(form.id) ? "completed" : ""}`} key={form.id} onClick={() => setSelectedFormId(form.id)} type="button">
+                <strong>
+                  {form.name}
+                  {completedFormIds.includes(form.id) ? <span className="form-card-status">Complete</span> : null}
+                </strong>
                 <span className="form-card-meta-line">
                   <span>{form.category}</span>
                   <span className="form-card-duration">{form.estimatedMinutes} min</span>
@@ -86,6 +95,11 @@ export function IntakePage({
             onStartOver={onStartOver}
             message={message}
             error={error}
+            completionNotice={completionNotice}
+            draftNotice={draftNotice}
+            resumeSaving={resumeSaving}
+            onSaveResumeDraft={onSaveResumeDraft}
+            onDiscardDraft={onDiscardDraft}
           />
         </section>
       </div>

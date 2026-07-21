@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "re
 import { api, getStoredToken, storeToken } from "./api/client";
 import { AppShell } from "./components/layout/AppShell";
 import { buildSubmissionAnswers } from "./features/forms/FormRenderer";
+import { getFormProgress } from "./features/forms/progressUtils";
 import { demographicAutofillValue, isRepeatedDemographicField } from "./features/forms/fieldMeta";
 import { addCalculatedScores } from "./features/scoring/calculatedScores";
 import { enrichSubmission } from "./features/submissions/review";
@@ -16,6 +17,7 @@ import { WelcomePage, recommendFormsFromRouting } from "./pages/WelcomePage";
 const APP_MODE = window.PYAM_APP_MODE || "unified";
 const IS_PATIENT_APP = APP_MODE === "patient";
 const IS_STAFF_APP = APP_MODE === "staff";
+const DRAFT_STORAGE_KEY = "pyam-intake-drafts-v1";
 
 function initialAnswersForForm(form) {
   const answers = {};
@@ -27,6 +29,66 @@ function initialAnswersForForm(form) {
     }
   }
   return answers;
+}
+
+function readDraftStore() {
+  try {
+    return JSON.parse(window.localStorage.getItem(DRAFT_STORAGE_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function writeDraftStore(store) {
+  window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(store));
+}
+
+function draftForForm(formId) {
+  return readDraftStore()[formId] || null;
+}
+
+function saveDraftForForm(form, answers) {
+  if (!form) return null;
+  const store = readDraftStore();
+  const savedAt = new Date().toISOString();
+  store[form.id] = {
+    formId: form.id,
+    formName: form.name,
+    formTemplateVersion: form.version || 1,
+    savedAt,
+    answers
+  };
+  writeDraftStore(store);
+  return store[form.id];
+}
+
+function removeDraftForForm(formId) {
+  if (!formId) return;
+  const store = readDraftStore();
+  delete store[formId];
+  writeDraftStore(store);
+}
+
+function clearAllDrafts() {
+  window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+}
+
+function hasMeaningfulAnswer(value) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (value === true) return true;
+  return value !== undefined && value !== null && String(value).trim() !== "";
+}
+
+function hasMeaningfulDraftAnswers(form, answers) {
+  if (!form) return false;
+  return Object.entries(answers || {}).some(([fieldId, value]) => {
+    if (!hasMeaningfulAnswer(value)) return false;
+    for (const section of form.sections || []) {
+      const field = (section.fields || []).find((item) => item.id === fieldId);
+      if (field && isRepeatedDemographicField(field, section.title)) return false;
+    }
+    return true;
+  });
 }
 
 function visibleViewFor(view, { mode, user, routingComplete, showAllForms }) {
@@ -49,6 +111,18 @@ const VIEW_PATHS = {
 
 const PATH_VIEWS = Object.fromEntries(Object.entries(VIEW_PATHS).map(([view, path]) => [path, view]));
 
+function buildSubmissionQuery({ cursor = "", query = {} } = {}) {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  if (query.status) params.set("status", query.status);
+  if (query.review) params.set("review", query.review);
+  if (query.formId) params.set("formId", query.formId);
+  if (query.search) params.set("search", query.search);
+  if (query.sort) params.set("sort", query.sort);
+  const queryText = params.toString();
+  return queryText ? `?${queryText}` : "";
+}
+
 function SubmissionDetailRoute({
   authToken,
   submissions,
@@ -58,6 +132,7 @@ function SubmissionDetailRoute({
   forms,
   onSelect,
   onStatusChange,
+  onRecordActivity,
   onBack
 }) {
   const { submissionId } = useParams();
@@ -77,10 +152,21 @@ function SubmissionDetailRoute({
       forms={forms}
       onSelect={onSelect}
       onStatusChange={onStatusChange}
+      onRecordActivity={onRecordActivity}
       detailOnly
       onBack={onBack}
     />
   );
+}
+
+function ResumeDraftRoute({ onLoadDraft }) {
+  const { resumeCode } = useParams();
+
+  useEffect(() => {
+    if (resumeCode) onLoadDraft(resumeCode);
+  }, [onLoadDraft, resumeCode]);
+
+  return <div className="empty-state"><h2>Loading draft</h2><p>Opening the saved intake draft.</p></div>;
 }
 
 export default function App() {
@@ -93,15 +179,19 @@ export default function App() {
   const [health, setHealth] = useState("Checking server");
   const [needsFirstAdmin, setNeedsFirstAdmin] = useState(false);
   const [forms, setForms] = useState([]);
+  const [templateDrafts, setTemplateDrafts] = useState([]);
+  const [templateVersions, setTemplateVersions] = useState({});
   const [submissions, setSubmissions] = useState([]);
   const [submissionsLoading, setSubmissionsLoading] = useState(false);
   const [submissionsNextCursor, setSubmissionsNextCursor] = useState(null);
   const [submissionsHasMore, setSubmissionsHasMore] = useState(false);
+  const [submissionQuery, setSubmissionQuery] = useState({ sort: "priority" });
   const [submissionDetailLoading, setSubmissionDetailLoading] = useState(false);
   const [selectedSubmission, setSelectedSubmission] = useState(null);
   const [staffUsers, setStaffUsers] = useState([]);
   const [staffLoading, setStaffLoading] = useState(false);
   const [recommendedFormIds, setRecommendedFormIds] = useState([]);
+  const [completedFormIds, setCompletedFormIds] = useState([]);
   const [routingComplete, setRoutingComplete] = useState(false);
   const [showAllForms, setShowAllForms] = useState(false);
   const [selectedFormId, setSelectedFormId] = useState(null);
@@ -111,11 +201,14 @@ export default function App() {
   const [authError, setAuthError] = useState(false);
   const [formMessage, setFormMessage] = useState("");
   const [formError, setFormError] = useState(false);
+  const [completionNotice, setCompletionNotice] = useState(null);
+  const [draftNotice, setDraftNotice] = useState(null);
+  const [resumeSaving, setResumeSaving] = useState(false);
   const [staffMessage, setStaffMessage] = useState("");
   const [staffError, setStaffError] = useState(false);
 
   const isStaff = mode === "staff";
-  const view = location.pathname.startsWith("/submissions") ? "submissions" : PATH_VIEWS[location.pathname] || "login";
+  const view = location.pathname.startsWith("/submissions") ? "submissions" : location.pathname.startsWith("/resume/") ? "resume" : PATH_VIEWS[location.pathname] || "login";
   const selectedForm = useMemo(() => forms.find((form) => form.id === selectedFormId), [forms, selectedFormId]);
 
   const navigateToView = useCallback((nextView, options = {}) => {
@@ -133,10 +226,37 @@ export default function App() {
   }, [view, mode, currentUser]);
 
   useEffect(() => {
-    setAnswers(initialAnswersForForm(selectedForm));
+    if (!selectedForm) {
+      setAnswers({});
+      setDraftNotice(null);
+      return;
+    }
+    const initialAnswers = initialAnswersForForm(selectedForm);
+    const storedDraft = mode === "patient" ? draftForForm(selectedForm.id) : null;
+    if (storedDraft?.answers) {
+      setAnswers(addCalculatedScores(selectedForm.id, { ...initialAnswers, ...storedDraft.answers }));
+      setDraftNotice({ ...storedDraft, restored: true });
+    } else {
+      setAnswers(initialAnswers);
+      setDraftNotice(null);
+    }
     setFormMessage("");
     setFormError(false);
-  }, [selectedForm]);
+  }, [selectedForm, mode]);
+
+  useEffect(() => {
+    if (!selectedForm || mode !== "patient") return;
+    const timer = window.setTimeout(() => {
+      if (!hasMeaningfulDraftAnswers(selectedForm, answers)) {
+        removeDraftForForm(selectedForm.id);
+        setDraftNotice(null);
+        return;
+      }
+      const saved = saveDraftForForm(selectedForm, answers);
+      setDraftNotice({ ...saved, restored: false });
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [answers, mode, selectedForm]);
 
   const setAuthSession = useCallback((payload) => {
     const token = payload.accessToken || "";
@@ -170,6 +290,23 @@ export default function App() {
     }
   }, [authToken, mode]);
 
+  const loadTemplateDrafts = useCallback(async () => {
+    if (!authToken || currentUser?.role !== "admin") {
+      setTemplateDrafts([]);
+      return [];
+    }
+    const payload = await api("/api/forms/drafts", {}, authToken);
+    setTemplateDrafts(payload.drafts || []);
+    return payload.drafts || [];
+  }, [authToken, currentUser?.role]);
+
+  const loadTemplateVersions = useCallback(async (formId) => {
+    if (!authToken || currentUser?.role !== "admin" || !formId) return [];
+    const payload = await api(`/api/forms/${encodeURIComponent(formId)}/versions`, {}, authToken);
+    setTemplateVersions((current) => ({ ...current, [formId]: payload.versions || [] }));
+    return payload.versions || [];
+  }, [authToken, currentUser?.role]);
+
   const loadStaff = useCallback(async (user = currentUser, token = authToken) => {
     if (!token || user?.role !== "admin") {
       setStaffUsers([]);
@@ -194,7 +331,7 @@ export default function App() {
     }
     setSubmissionsLoading(true);
     try {
-      const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+      const query = buildSubmissionQuery({ cursor, query: submissionQuery });
       const payload = await api(`/api/submissions${query}`, {}, authToken);
       const summaries = payload.submissions.map((submission) => enrichSubmission(submission));
       setSubmissions((current) => append ? [...current, ...summaries] : summaries);
@@ -208,7 +345,7 @@ export default function App() {
     } finally {
       setSubmissionsLoading(false);
     }
-  }, [authToken]);
+  }, [authToken, submissionQuery]);
 
   const loadMoreSubmissions = useCallback(async () => {
     if (!submissionsNextCursor) return;
@@ -307,6 +444,9 @@ export default function App() {
     setRoutingComplete(false);
     setShowAllForms(false);
     setRecommendedFormIds([]);
+    setCompletedFormIds([]);
+    clearAllDrafts();
+    setDraftNotice(null);
     setSelectedFormId(null);
     navigateToView("welcome");
   }
@@ -331,6 +471,9 @@ export default function App() {
     setRoutingComplete(false);
     setShowAllForms(false);
     setRecommendedFormIds([]);
+    setCompletedFormIds([]);
+    clearAllDrafts();
+    setDraftNotice(null);
     setSelectedFormId(null);
     navigateToView(IS_STAFF_APP ? "login" : "login");
   }
@@ -338,6 +481,8 @@ export default function App() {
   function handleRoute(formData) {
     const ids = recommendFormsFromRouting(formData);
     setRecommendedFormIds(ids);
+    setCompletedFormIds([]);
+    setDraftNotice(null);
     setRoutingComplete(true);
     setShowAllForms(false);
     setSelectedFormId(ids[0] || null);
@@ -358,7 +503,16 @@ export default function App() {
     navigateToView("intake");
   }
 
+  function focusField(fieldId) {
+    window.requestAnimationFrame(() => {
+      const fieldElement = document.getElementById(`field_${fieldId}`);
+      fieldElement?.focus();
+      fieldElement?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+
   function handleAnswerChange(fieldId, value) {
+    setCompletionNotice(null);
     setAnswers((current) => {
       const next = { ...current, [fieldId]: value };
       for (const section of selectedForm?.sections || []) {
@@ -377,17 +531,105 @@ export default function App() {
     if (!selectedForm) return;
     setFormMessage("");
     setFormError(false);
+    setCompletionNotice(null);
+    const progress = getFormProgress(selectedForm, answers, mode);
+    if (progress.missingRequired.length) {
+      const preview = progress.missingRequired.slice(0, 4).map((field) => field.label).join(", ");
+      setFormError(true);
+      setFormMessage(`Please complete ${progress.missingRequired.length} required field${progress.missingRequired.length === 1 ? "" : "s"} before submitting: ${preview}${progress.missingRequired.length > 4 ? ", and more" : ""}.`);
+      focusField(progress.missingRequired[0].id);
+      return;
+    }
     try {
+      const submittedFormId = selectedForm.id;
       const payload = await api("/api/submissions", {
         method: "POST",
-        body: JSON.stringify({ formId: selectedForm.id, answers: buildSubmissionAnswers(selectedForm, addCalculatedScores(selectedForm.id, answers), mode) })
+        body: JSON.stringify({ formId: submittedFormId, answers: buildSubmissionAnswers(selectedForm, addCalculatedScores(submittedFormId, answers), mode) })
       }, authToken);
-      setFormMessage(`Saved ${payload.submission.formName} for ${payload.submission.patientName}.`);
-      setAnswers(initialAnswersForForm(selectedForm));
+      removeDraftForForm(submittedFormId);
+      const nextCompletedFormIds = [...new Set([...completedFormIds, submittedFormId])];
+      const pendingRecommendedIds = recommendedFormIds.filter((id) => !nextCompletedFormIds.includes(id));
+      const nextFormId = showAllForms ? submittedFormId : pendingRecommendedIds[0] || null;
+      setCompletedFormIds(nextCompletedFormIds);
+      setCompletionNotice({
+        formName: payload.submission.formName,
+        patientName: payload.submission.patientName,
+        remainingCount: pendingRecommendedIds.length,
+        nextFormName: forms.find((form) => form.id === pendingRecommendedIds[0])?.name || ""
+      });
+      setDraftNotice(null);
+      setSelectedFormId(nextFormId || submittedFormId);
+      setAnswers(initialAnswersForForm(forms.find((form) => form.id === (nextFormId || submittedFormId))));
       await loadSubmissions();
     } catch (error) {
       setFormError(true);
       setFormMessage([error.message, ...(error.details || [])].join(" "));
+    }
+  }
+
+  const loadPatientResumeDraft = useCallback(async (resumeCode) => {
+    setFormMessage("");
+    setFormError(false);
+    try {
+      const payload = await api(`/api/patient-drafts/${encodeURIComponent(resumeCode)}`, {}, "");
+      const form = payload.form;
+      const draft = payload.draft;
+      setForms((current) => current.some((item) => item.id === form.id) ? current : [...current, form]);
+      setMode("patient");
+      setShowAllForms(false);
+      setRoutingComplete(true);
+      setRecommendedFormIds([draft.formId]);
+      setCompletedFormIds([]);
+      setSelectedFormId(draft.formId);
+      setAnswers(addCalculatedScores(draft.formId, { ...initialAnswersForForm(form), ...(draft.answers || {}) }));
+      setDraftNotice({
+        formId: draft.formId,
+        formName: draft.formName,
+        savedAt: draft.updatedAt || draft.createdAt,
+        restored: true,
+        serverDraft: true,
+        resumeCode: draft.resumeCode || resumeCode.toUpperCase(),
+        resumeUrl: `${window.location.origin}/resume/${draft.resumeCode || resumeCode.toUpperCase()}`
+      });
+      navigateToView("intake", { replace: true });
+    } catch (error) {
+      setFormError(true);
+      setFormMessage(error.message || "Unable to load that resume draft.");
+      navigateToView("welcome", { replace: true });
+    }
+  }, [navigateToView]);
+
+  async function savePatientResumeDraft() {
+    if (!selectedForm) return;
+    setResumeSaving(true);
+    setFormMessage("");
+    setFormError(false);
+    try {
+      const body = JSON.stringify({
+        formId: selectedForm.id,
+        answers: buildSubmissionAnswers(selectedForm, addCalculatedScores(selectedForm.id, answers), mode),
+        status: "draft"
+      });
+      const resumeCode = draftNotice?.resumeCode;
+      const payload = resumeCode
+        ? await api(`/api/patient-drafts/${encodeURIComponent(resumeCode)}`, { method: "PATCH", body }, "")
+        : await api("/api/patient-drafts", { method: "POST", body }, "");
+      const serverDraft = payload.draft;
+      setDraftNotice({
+        formId: serverDraft.formId,
+        formName: serverDraft.formName,
+        savedAt: serverDraft.updatedAt || serverDraft.createdAt,
+        restored: false,
+        serverDraft: true,
+        resumeCode: serverDraft.resumeCode,
+        resumeUrl: `${window.location.origin}/resume/${serverDraft.resumeCode}`
+      });
+      setFormMessage(`Resume code saved: ${serverDraft.resumeCode}`);
+    } catch (error) {
+      setFormError(true);
+      setFormMessage(error.message || "Unable to save resume draft.");
+    } finally {
+      setResumeSaving(false);
     }
   }
 
@@ -415,6 +657,17 @@ export default function App() {
     await selectSubmission(id);
   }
 
+  async function recordSubmissionActivity(id, action, metadata = {}) {
+    const payload = await api(`/api/submissions/${encodeURIComponent(id)}/audit-events`, {
+      method: "POST",
+      body: JSON.stringify({ action, metadata })
+    }, authToken);
+    const enriched = enrichSubmission(payload.submission);
+    setSelectedSubmission(enriched);
+    setSubmissions((current) => current.map((submission) => (submission.id === id ? { ...submission, ...enriched } : submission)));
+    return enriched;
+  }
+
   async function createStaff(payload, onSuccess) {
     setStaffMessage("");
     setStaffError(false);
@@ -439,13 +692,29 @@ export default function App() {
     }
   }
 
-  async function saveTemplate(template) {
+  async function saveTemplate(template, options = {}) {
     const payload = await api(`/api/forms/${encodeURIComponent(template.id)}`, {
       method: "PATCH",
-      body: JSON.stringify({ template, publish: true })
+      body: JSON.stringify({ template, publish: options.publish !== false })
     }, authToken);
-    setForms((current) => current.map((form) => (form.id === payload.form.id ? payload.form : form)));
+    if (payload.form.status === "active") {
+      setForms((current) => current.map((form) => (form.id === payload.form.id ? payload.form : form)));
+      setTemplateDrafts((current) => current.filter((draft) => draft.id !== payload.form.id));
+      setTemplateVersions((current) => ({ ...current, [payload.form.id]: [] }));
+    } else if (payload.form.status === "draft") {
+      setTemplateDrafts((current) => {
+        const withoutCurrent = current.filter((draft) => draft.id !== payload.form.id);
+        return [payload.form, ...withoutCurrent];
+      });
+      setTemplateVersions((current) => ({ ...current, [payload.form.id]: [] }));
+    }
     return payload;
+  }
+
+  async function deleteTemplateDraft(formId) {
+    await api(`/api/forms/${encodeURIComponent(formId)}/draft`, { method: "DELETE" }, authToken);
+    setTemplateDrafts((current) => current.filter((draft) => draft.id !== formId));
+    setTemplateVersions((current) => ({ ...current, [formId]: [] }));
   }
 
   const loginPage = (
@@ -472,6 +741,7 @@ export default function App() {
       showAllForms={showAllForms}
       routingComplete={routingComplete}
       recommendedFormIds={recommendedFormIds}
+      completedFormIds={completedFormIds}
       answers={answers}
       mode={mode}
       onAnswerChange={handleAnswerChange}
@@ -479,11 +749,25 @@ export default function App() {
       onClear={() => {
         setAnswers(initialAnswersForForm(selectedForm));
         setFormMessage("");
+        setCompletionNotice(null);
+        removeDraftForForm(selectedForm?.id);
+        setDraftNotice(null);
         setFormError(false);
       }}
       onStartOver={continuePatient}
       message={formMessage}
       error={formError}
+      completionNotice={completionNotice}
+      draftNotice={draftNotice}
+      resumeSaving={resumeSaving}
+      onSaveResumeDraft={savePatientResumeDraft}
+      onDiscardDraft={() => {
+        removeDraftForForm(selectedForm?.id);
+        setAnswers(initialAnswersForForm(selectedForm));
+        setDraftNotice(null);
+        setFormMessage("");
+        setFormError(false);
+      }}
     />
   );
 
@@ -496,12 +780,25 @@ export default function App() {
       forms={forms}
       onSelect={selectSubmission}
       onStatusChange={updateSubmissionStatus}
+      onRecordActivity={recordSubmissionActivity}
       onLoadMore={loadMoreSubmissions}
       hasMore={submissionsHasMore}
+      onQueryChange={setSubmissionQuery}
     />
   ) : authReady ? <Navigate to="/login" replace /> : <div className="empty-state"><h2>Loading</h2><p>Checking your session.</p></div>;
 
-  const templatesPage = authToken ? <TemplatesPage forms={forms} user={currentUser} onSaveTemplate={saveTemplate} /> : authReady ? <Navigate to="/login" replace /> : <div className="empty-state"><h2>Loading</h2><p>Checking your session.</p></div>;
+  const templatesPage = authToken ? (
+    <TemplatesPage
+      forms={forms}
+      templateDrafts={templateDrafts}
+      templateVersions={templateVersions}
+      user={currentUser}
+      onSaveTemplate={saveTemplate}
+      onLoadDrafts={loadTemplateDrafts}
+      onLoadVersions={loadTemplateVersions}
+      onDeleteDraft={deleteTemplateDraft}
+    />
+  ) : authReady ? <Navigate to="/login" replace /> : <div className="empty-state"><h2>Loading</h2><p>Checking your session.</p></div>;
   const staffPage = !authReady
     ? <div className="empty-state"><h2>Loading</h2><p>Checking your session.</p></div>
     : currentUser?.role === "admin"
@@ -548,6 +845,7 @@ export default function App() {
         <Route path="/" element={<Navigate to={IS_STAFF_APP ? (authToken ? "/submissions" : "/login") : authToken ? "/intake" : "/start"} replace />} />
         <Route path="/login" element={<Navigate to={authToken ? (IS_STAFF_APP ? "/submissions" : "/intake") : "/login"} replace />} />
         <Route path="/start" element={IS_STAFF_APP ? <Navigate to={authToken ? "/submissions" : "/login"} replace /> : welcomePage} />
+        <Route path="/resume/:resumeCode" element={IS_STAFF_APP ? <Navigate to={authToken ? "/submissions" : "/login"} replace /> : <ResumeDraftRoute onLoadDraft={loadPatientResumeDraft} />} />
         <Route path="/intake" element={guardedIntakePage} />
         <Route path="/submissions" element={IS_PATIENT_APP ? <Navigate to="/start" replace /> : submissionsPage} />
         <Route path="/submissions/:submissionId" element={IS_PATIENT_APP ? <Navigate to="/start" replace /> : authToken ? (
@@ -560,6 +858,7 @@ export default function App() {
             forms={forms}
             onSelect={selectSubmission}
             onStatusChange={updateSubmissionStatus}
+            onRecordActivity={recordSubmissionActivity}
             onBack={() => navigateToView("submissions")}
           />
         ) : <Navigate to="/login" replace />} />

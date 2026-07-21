@@ -128,6 +128,7 @@ class StaffCreateRequest(BaseModel):
 class SubmissionCreate(BaseModel):
     form_id: str | None = Field(default=None, alias="formId")
     answers: dict[str, Any] = Field(default_factory=dict)
+    status: str = "new"
 
     model_config = {"populate_by_name": True}
 
@@ -135,6 +136,15 @@ class SubmissionCreate(BaseModel):
 class SubmissionUpdate(BaseModel):
     status: str | None = None
     answers: dict[str, Any] | None = None
+
+
+class PatientDraftUpdate(BaseModel):
+    answers: dict[str, Any] = Field(default_factory=dict)
+
+
+class AuditEventCreate(BaseModel):
+    action: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class FormTemplateUpdate(BaseModel):
@@ -216,7 +226,13 @@ def audit_actor(user: dict[str, Any] | None) -> dict[str, str]:
     }
 
 
-def audit_event(action: str, actor: dict[str, str], entity_id: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+def audit_event(
+    action: str,
+    actor: dict[str, str],
+    entity_id: str,
+    metadata: dict[str, Any] | None = None,
+    entity_type: str = "intake_form",
+) -> dict[str, Any]:
     return {
         "id": str(uuid4()),
         "at": utc_now(),
@@ -226,7 +242,7 @@ def audit_event(action: str, actor: dict[str, str], entity_id: str, metadata: di
         "actorEmail": actor.get("email"),
         "actorName": actor.get("name"),
         "actorRole": actor.get("role"),
-        "entityType": "intake_form",
+        "entityType": entity_type,
         "entityId": entity_id,
         "metadata": metadata or {},
     }
@@ -262,7 +278,33 @@ def get_templates() -> list[dict[str, Any]]:
             normalize_document(template)
             for template in form_templates().find({"status": "active"}).sort([("category", ASCENDING), ("name", ASCENDING)])
         ]
-    return read_json(TEMPLATES_FILE, [])
+    return [template for template in read_json(TEMPLATES_FILE, []) if template.get("status", "active") == "active"]
+
+
+def get_draft_templates() -> list[dict[str, Any]]:
+    if mongo_db is not None:
+        return [
+            normalize_document(template)
+            for template in form_templates().find({"status": "draft"}).sort([("updatedAt", -1), ("name", ASCENDING)])
+        ]
+    return sorted(
+        [template for template in read_json(TEMPLATES_FILE, []) if template.get("status") == "draft"],
+        key=lambda item: item.get("updatedAt", ""),
+        reverse=True,
+    )
+
+
+def get_template_versions(form_id: str) -> list[dict[str, Any]]:
+    if mongo_db is not None:
+        return [
+            normalize_document(template)
+            for template in form_templates().find({"id": form_id}).sort([("version", -1), ("updatedAt", -1)])
+        ]
+    return sorted(
+        [template for template in read_json(TEMPLATES_FILE, []) if template.get("id") == form_id],
+        key=lambda item: (int(item.get("version", 1)), item.get("updatedAt", "")),
+        reverse=True,
+    )
 
 
 def get_local_users() -> list[dict[str, Any]]:
@@ -395,6 +437,40 @@ def flatten_template_fields(template: dict[str, Any]) -> list[dict[str, Any]]:
     return fields
 
 
+def template_submission_snapshot(template: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": template.get("id"),
+        "name": template.get("name"),
+        "category": template.get("category"),
+        "description": template.get("description"),
+        "estimatedMinutes": template.get("estimatedMinutes"),
+        "version": int(template.get("version", 1)),
+        "sourceFile": template.get("sourceFile"),
+        "sourceFiles": template.get("sourceFiles"),
+        "sections": [
+            {
+                "title": section.get("title"),
+                "fieldCount": len(section.get("fields", [])),
+                "contentCount": len(section.get("content", [])),
+                "content": section.get("content", []),
+                "fields": [
+                    {
+                        "id": field.get("id"),
+                        "label": field.get("label"),
+                        "type": field.get("type"),
+                        "options": field.get("options"),
+                        "required": bool(field.get("required")),
+                        "owner": field.get("owner"),
+                        "staffOnly": bool(field.get("staffOnly") or field.get("owner") == "staff"),
+                    }
+                    for field in section.get("fields", [])
+                ],
+            }
+            for section in template.get("sections", [])
+        ],
+    }
+
+
 def validate_submission(template: dict[str, Any], answers: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     for field in flatten_template_fields(template):
@@ -491,6 +567,84 @@ def patient_name_from_answers(answers: dict[str, Any]) -> str:
     return first_last or "Unnamed patient"
 
 
+def generate_resume_code() -> str:
+    return uuid4().hex[:10].upper()
+
+
+def find_patient_draft_by_code(resume_code: str) -> dict[str, Any] | None:
+    normalized_code = resume_code.strip().upper()
+    if mongo_db is not None:
+        draft = submissions().find_one({"resumeCode": normalized_code, "status": "draft"})
+        return normalize_document(draft) if draft else None
+    return next(
+        (
+            item
+            for item in get_local_submissions()
+            if item.get("resumeCode") == normalized_code and item.get("status") == "draft"
+        ),
+        None,
+    )
+
+
+def submission_severity_score(submission: dict[str, Any]) -> int:
+    review = submission.get("review") or review_for_submission(submission)
+    flags = review.get("flags") or []
+    flag_score = sum(
+        100 if flag.get("severity") == "high" else 30 if flag.get("severity") == "medium" else 5
+        for flag in flags
+    )
+    status_score = (
+        80
+        if submission.get("status") in {"needs-follow-up", "needs-patient-follow-up"}
+        else 60
+        if review.get("status") == "needs-review"
+        else 20
+        if submission.get("status") == "new"
+        else 5
+        if submission.get("status") == "draft"
+        else 0
+    )
+    return flag_score + status_score
+
+
+def submission_search_text(submission: dict[str, Any]) -> str:
+    review = submission.get("review") or review_for_submission(submission)
+    flags = review.get("flags") or []
+    parts = [
+        submission.get("patientName"),
+        submission.get("patientDob"),
+        submission.get("formName"),
+        submission.get("category"),
+        submission.get("status"),
+        review.get("label"),
+        *(flag.get("label") for flag in flags),
+        *(flag.get("type") for flag in flags),
+    ]
+    return " ".join(str(part or "") for part in parts).lower()
+
+
+def matches_review_filter(submission: dict[str, Any], review_filter: str | None) -> bool:
+    if not review_filter:
+        return True
+    review = submission.get("review") or review_for_submission(submission)
+    return review.get("status") == review_filter or any(
+        flag.get("type") == review_filter or flag.get("key") == review_filter
+        for flag in review.get("flags") or []
+    )
+
+
+def sort_submission_items(items: list[dict[str, Any]], sort_mode: str) -> list[dict[str, Any]]:
+    if sort_mode == "priority":
+        return sorted(items, key=lambda item: (submission_severity_score(item), item.get("createdAt", "")), reverse=True)
+    if sort_mode == "oldest":
+        return sorted(items, key=lambda item: item.get("createdAt", ""))
+    if sort_mode == "patient":
+        return sorted(items, key=lambda item: str(item.get("patientName") or "").lower())
+    if sort_mode == "form":
+        return sorted(items, key=lambda item: str(item.get("formName") or "").lower())
+    return sorted(items, key=lambda item: item.get("createdAt", ""), reverse=True)
+
+
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     template_count = form_templates().count_documents({"status": "active"}) if mongo_db is not None else len(get_templates())
@@ -585,6 +739,53 @@ def list_forms() -> dict[str, list[dict[str, Any]]]:
     return {"forms": get_templates()}
 
 
+@app.get("/api/forms/drafts")
+def list_form_drafts(admin: dict[str, Any] = Depends(require_admin)) -> dict[str, list[dict[str, Any]]]:
+    del admin
+    return {"drafts": get_draft_templates()}
+
+
+@app.delete("/api/forms/{form_id}/draft", status_code=204)
+def delete_form_draft(
+    form_id: str,
+    admin: dict[str, Any] = Depends(require_admin),
+) -> None:
+    actor = audit_actor(admin)
+    event = audit_event(
+        "form_template_draft_discarded",
+        actor,
+        form_id,
+        metadata={"formId": form_id},
+        entity_type="form_template",
+    )
+
+    if mongo_db is not None:
+        result = form_templates().delete_many({"id": form_id, "status": "draft"})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Draft template not found.")
+        save_audit_event(event)
+        return None
+
+    templates = read_json(TEMPLATES_FILE, [])
+    next_templates = [template for template in templates if not (template.get("id") == form_id and template.get("status") == "draft")]
+    if len(next_templates) == len(templates):
+        raise HTTPException(status_code=404, detail="Draft template not found.")
+    write_json(TEMPLATES_FILE, next_templates)
+    return None
+
+
+@app.get("/api/forms/{form_id}/versions")
+def list_form_versions(
+    form_id: str,
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, list[dict[str, Any]]]:
+    del admin
+    versions = get_template_versions(form_id)
+    if not versions:
+        raise HTTPException(status_code=404, detail="Form template not found.")
+    return {"versions": versions}
+
+
 @app.get("/api/forms/{form_id}")
 def get_form(form_id: str) -> dict[str, dict[str, Any]]:
     form = next((template for template in get_templates() if template.get("id") == form_id), None)
@@ -623,6 +824,7 @@ def update_form_template(
             "sectionCount": len(template.get("sections", [])),
             "fieldCount": sum(len(section.get("fields", [])) for section in template.get("sections", [])),
         },
+        entity_type="form_template",
     )
     event["at"] = now
     template["audit"] = [*(template.get("audit") or []), event]
@@ -630,7 +832,7 @@ def update_form_template(
     if mongo_db is not None:
         if payload.publish:
             form_templates().update_many(
-                {"id": form_id, "status": "active"},
+                {"id": form_id, "status": {"$in": ["active", "draft"]}},
                 {"$set": {"status": "archived", "updatedAt": now}},
             )
         result = form_templates().insert_one(dict(template))
@@ -644,7 +846,7 @@ def update_form_template(
     if payload.publish:
         templates = [
             {**item, "status": "archived", "updatedAt": now}
-            if item.get("id") == form_id and item.get("status", "active") == "active"
+            if item.get("id") == form_id and item.get("status", "active") in {"active", "draft"}
             else item
             for item in templates
         ]
@@ -665,38 +867,64 @@ def list_submissions(
     limit: int = Query(default=50, ge=1, le=100),
     cursor: str | None = None,
     status_filter: str | None = Query(default=None, alias="status"),
+    form_id: str | None = Query(default=None, alias="formId"),
+    review_filter: str | None = Query(default=None, alias="review"),
+    search: str | None = None,
+    sort: str = Query(default="priority"),
 ) -> dict[str, Any]:
     del user
+    query: dict[str, Any] = {}
+    if status_filter:
+        query["status"] = {"$in": ["needs-follow-up", "needs-patient-follow-up"]} if status_filter == "needs-patient-follow-up" else status_filter
+    if form_id:
+        query["formId"] = form_id
+    search_text = (search or "").strip().lower()
+
     if mongo_db is not None:
-        query: dict[str, Any] = {}
-        if cursor:
-            query["createdAt"] = {"$lt": cursor}
-        if status_filter:
-            query["status"] = status_filter
         stored_items = [
             normalize_document(item)
-            for item in submissions().find(query).sort("createdAt", -1).limit(limit + 1)
+            for item in submissions().find(query).sort("createdAt", -1)
         ]
     else:
-        stored_items = sorted(get_local_submissions(), key=lambda item: item.get("createdAt", ""), reverse=True)
-        if status_filter:
-            stored_items = [item for item in stored_items if item.get("status") == status_filter]
-        if cursor:
-            stored_items = [item for item in stored_items if item.get("createdAt", "") < cursor]
-        stored_items = stored_items[: limit + 1]
+        stored_items = [
+            item
+            for item in get_local_submissions()
+            if (
+                not status_filter
+                or item.get("status") == status_filter
+                or (status_filter == "needs-patient-follow-up" and item.get("status") == "needs-follow-up")
+            )
+            and (not form_id or item.get("formId") == form_id)
+        ]
 
-    has_more = len(stored_items) > limit
-    page_items = stored_items[:limit]
+    enriched_items = []
+    for submission in stored_items:
+        item = dict(submission)
+        item["review"] = item.get("review") or review_for_submission(item)
+        enriched_items.append(item)
+
+    filtered_items = [
+        item
+        for item in enriched_items
+        if matches_review_filter(item, review_filter)
+        and (not search_text or search_text in submission_search_text(item))
+    ]
+    sorted_items = sort_submission_items(filtered_items, sort)
+    if cursor:
+        sorted_items = [item for item in sorted_items if item.get("createdAt", "") < cursor]
+
+    has_more = len(sorted_items) > limit
+    page_items = sorted_items[:limit]
     summary = []
     for submission in page_items:
-        item = {key: value for key, value in submission.items() if key not in {"answers", "audit"}}
-        item["review"] = submission.get("review") or review_for_submission(submission)
+        item = {key: value for key, value in submission.items() if key not in {"answers", "audit", "formTemplateSnapshot"}}
         summary.append(item)
 
     return {
         "submissions": summary,
         "nextCursor": page_items[-1].get("createdAt") if has_more and page_items else None,
         "hasMore": has_more,
+        "totalMatched": len(sorted_items),
     }
 
 
@@ -729,8 +957,11 @@ def create_submission(
         raise HTTPException(status_code=400, detail="Unknown form template.")
 
     scored_answers = add_calculated_scores(template["id"], payload.answers)
+    if payload.status not in {"draft", "new"}:
+        raise HTTPException(status_code=400, detail="Unsupported initial submission status.")
+
     validation_errors = validate_submission(template, scored_answers)
-    if validation_errors:
+    if payload.status != "draft" and validation_errors:
         raise HTTPException(
             status_code=422,
             detail={
@@ -740,26 +971,31 @@ def create_submission(
         )
 
     now = utc_now()
+    submission_id = str(uuid4())
     actor = audit_actor(request_user)
     event = audit_event(
         "submission_created",
         actor,
-        entity_id=str(uuid4()),
+        entity_id=submission_id,
         metadata={
             "formId": template["id"],
             "formName": template["name"],
-            "status": "new",
+            "formTemplateVersion": int(template.get("version", 1)),
+            "status": payload.status,
+            "requiredMissingCount": len(validation_errors),
         },
     )
+    event["at"] = now
     submission = {
-        "id": event["entityId"],
+        "id": submission_id,
         "formId": template["id"],
-        "formTemplateVersion": template.get("version", 1),
+        "formTemplateVersion": int(template.get("version", 1)),
+        "formTemplateSnapshot": template_submission_snapshot(template),
         "formName": template["name"],
         "category": template["category"],
         "patientName": patient_name_from_answers(scored_answers),
         "patientDob": scored_answers.get("date_of_birth"),
-        "status": "new",
+        "status": payload.status,
         "createdAt": now,
         "updatedAt": now,
         "submittedBy": actor,
@@ -779,13 +1015,141 @@ def create_submission(
     return {"submission": submission}
 
 
+@app.post("/api/patient-drafts", status_code=201)
+def create_patient_draft(payload: SubmissionCreate) -> dict[str, dict[str, Any]]:
+    templates = get_templates()
+    template = next((item for item in templates if item.get("id") == payload.form_id), None)
+    if not template:
+        raise HTTPException(status_code=400, detail="Unknown form template.")
+
+    scored_answers = add_calculated_scores(template["id"], payload.answers)
+    now = utc_now()
+    submission_id = str(uuid4())
+    resume_code = generate_resume_code()
+    actor = audit_actor(None)
+    event = audit_event(
+        "patient_draft_saved",
+        actor,
+        entity_id=submission_id,
+        metadata={
+            "formId": template["id"],
+            "formName": template["name"],
+            "formTemplateVersion": int(template.get("version", 1)),
+            "resumeCode": resume_code,
+        },
+    )
+    event["at"] = now
+    draft = {
+        "id": submission_id,
+        "resumeCode": resume_code,
+        "formId": template["id"],
+        "formTemplateVersion": int(template.get("version", 1)),
+        "formTemplateSnapshot": template_submission_snapshot(template),
+        "formName": template["name"],
+        "category": template["category"],
+        "patientName": patient_name_from_answers(scored_answers),
+        "patientDob": scored_answers.get("date_of_birth"),
+        "status": "draft",
+        "createdAt": now,
+        "updatedAt": now,
+        "submittedBy": actor,
+        "answers": scored_answers,
+        "audit": [event],
+    }
+    draft["review"] = review_for_submission(draft)
+
+    if mongo_db is not None:
+        submissions().insert_one(dict(draft))
+        save_audit_event(event)
+    else:
+        stored_items = get_local_submissions()
+        stored_items.append(draft)
+        save_local_submissions(stored_items)
+    draft["auditHistory"] = [event]
+    return {"draft": draft, "form": template}
+
+
+@app.get("/api/patient-drafts/{resume_code}")
+def get_patient_draft(resume_code: str) -> dict[str, dict[str, Any]]:
+    draft = find_patient_draft_by_code(resume_code)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Resume draft not found.")
+    form = next((item for item in get_templates() if item.get("id") == draft.get("formId")), None)
+    if not form:
+        form = {
+            "id": draft.get("formId"),
+            "name": draft.get("formName"),
+            "category": draft.get("category"),
+            "sections": draft.get("formTemplateSnapshot", {}).get("sections", []),
+        }
+    draft["auditHistory"] = audit_history_for_submission(draft)
+    return {"draft": draft, "form": form}
+
+
+@app.patch("/api/patient-drafts/{resume_code}")
+def update_patient_draft(resume_code: str, payload: PatientDraftUpdate) -> dict[str, dict[str, Any]]:
+    existing = find_patient_draft_by_code(resume_code)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Resume draft not found.")
+    form = next((item for item in get_templates() if item.get("id") == existing.get("formId")), None)
+    if not form:
+        raise HTTPException(status_code=400, detail="Original form template is no longer active.")
+
+    now = utc_now()
+    scored_answers = add_calculated_scores(form["id"], payload.answers)
+    actor = audit_actor(None)
+    event = audit_event(
+        "patient_draft_saved",
+        actor,
+        existing["id"],
+        metadata={
+            "formId": form["id"],
+            "formName": form["name"],
+            "formTemplateVersion": int(form.get("version", 1)),
+            "resumeCode": existing.get("resumeCode"),
+        },
+    )
+    event["at"] = now
+    set_fields = {
+        "answers": scored_answers,
+        "patientName": patient_name_from_answers(scored_answers),
+        "patientDob": scored_answers.get("date_of_birth"),
+        "updatedAt": now,
+    }
+    review_submission = {**existing, **set_fields}
+    set_fields["review"] = review_for_submission(review_submission)
+
+    if mongo_db is not None:
+        updated = submissions().find_one_and_update(
+            {"id": existing["id"], "status": "draft"},
+            {"$set": set_fields, "$push": {"audit": event}},
+            return_document=ReturnDocument.AFTER,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Resume draft not found.")
+        save_audit_event(event)
+        draft = normalize_document(updated)
+        draft["auditHistory"] = audit_history_for_submission(draft)
+        return {"draft": draft, "form": form}
+
+    stored_items = get_local_submissions()
+    index = next((i for i, item in enumerate(stored_items) if item.get("id") == existing["id"]), -1)
+    if index == -1:
+        raise HTTPException(status_code=404, detail="Resume draft not found.")
+    stored_items[index] = {**stored_items[index], **set_fields}
+    stored_items[index].setdefault("audit", []).append(event)
+    save_local_submissions(stored_items)
+    stored_items[index]["auditHistory"] = audit_history_for_submission(stored_items[index])
+    return {"draft": stored_items[index], "form": form}
+
+
 @app.patch("/api/submissions/{submission_id}")
 def update_submission(
     submission_id: str,
     payload: SubmissionUpdate,
     request_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, dict[str, Any]]:
-    allowed_statuses = {"new", "in-review", "complete", "needs-follow-up"}
+    allowed_statuses = {"draft", "new", "in-review", "needs-follow-up", "needs-patient-follow-up", "ready-for-chart", "complete"}
     if payload.status and payload.status not in allowed_statuses:
         raise HTTPException(status_code=400, detail="Unsupported submission status.")
 
@@ -819,6 +1183,20 @@ def update_submission(
 
     previous_status = existing_submission.get("status")
     next_status = payload.status or previous_status
+    actor = audit_actor(request_user)
+    review_activity = payload.answers is not None or next_status in {"in-review", "needs-follow-up", "needs-patient-follow-up", "ready-for-chart", "complete"}
+    if review_activity:
+        set_fields["reviewedBy"] = actor
+        set_fields["reviewedAt"] = now
+        set_fields["reviewLock"] = {
+            "lockedBy": actor,
+            "lockedAt": now,
+            "expiresAt": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
+            "mode": "soft",
+        }
+    if next_status == "complete":
+        set_fields["completedBy"] = actor
+        set_fields["completedAt"] = now
     action = "submission_updated"
     if payload.status and payload.status != previous_status and payload.answers is None:
         action = "status_changed"
@@ -827,15 +1205,20 @@ def update_submission(
 
     audit_entry = audit_event(
         action,
-        audit_actor(request_user),
+        actor,
         submission_id,
         metadata={
+            "formId": existing_submission.get("formId"),
+            "formName": existing_submission.get("formName"),
+            "formTemplateVersion": existing_submission.get("formTemplateVersion"),
             "previousStatus": previous_status,
             "newStatus": next_status,
             "statusChanged": next_status != previous_status,
             "answersUpdated": payload.answers is not None,
             "changedAnswerCount": len(changed_answer_keys),
             "changedAnswerKeys": changed_answer_keys[:50],
+            "reviewedBy": actor,
+            "reviewLockUpdated": review_activity,
         },
     )
     audit_entry["at"] = now
@@ -866,9 +1249,75 @@ def update_submission(
         stored_items[index]["status"] = payload.status
     if scored_payload_answers is not None:
         stored_items[index]["answers"] = scored_payload_answers
+    if review_activity:
+        stored_items[index]["reviewedBy"] = actor
+        stored_items[index]["reviewedAt"] = now
+        stored_items[index]["reviewLock"] = set_fields["reviewLock"]
+    if next_status == "complete":
+        stored_items[index]["completedBy"] = actor
+        stored_items[index]["completedAt"] = now
     stored_items[index]["updatedAt"] = now
     stored_items[index]["review"] = review_for_submission(stored_items[index])
     stored_items[index].setdefault("audit", []).append(audit_entry)
+    save_local_submissions(stored_items)
+    stored_items[index]["auditHistory"] = audit_history_for_submission(stored_items[index])
+    return {"submission": stored_items[index]}
+
+
+@app.post("/api/submissions/{submission_id}/audit-events", status_code=201)
+def create_submission_audit_event(
+    submission_id: str,
+    payload: AuditEventCreate,
+    request_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, dict[str, Any]]:
+    allowed_actions = {"pdf_exported", "submission_viewed", "staff_note_added"}
+    if payload.action not in allowed_actions:
+        raise HTTPException(status_code=400, detail="Unsupported audit action.")
+
+    existing_submission: dict[str, Any] | None = None
+    if mongo_db is not None:
+        existing_submission = submissions().find_one({"id": submission_id})
+        if existing_submission:
+            existing_submission = normalize_document(existing_submission)
+    else:
+        existing_submission = next((item for item in get_local_submissions() if item.get("id") == submission_id), None)
+    if not existing_submission:
+        raise HTTPException(status_code=404, detail="Submission not found.")
+
+    actor = audit_actor(request_user)
+    now = utc_now()
+    event = audit_event(
+        payload.action,
+        actor,
+        submission_id,
+        metadata={
+            "formId": existing_submission.get("formId"),
+            "formName": existing_submission.get("formName"),
+            "formTemplateVersion": existing_submission.get("formTemplateVersion"),
+            **payload.metadata,
+        },
+    )
+    event["at"] = now
+
+    if mongo_db is not None:
+        result = submissions().find_one_and_update(
+            {"id": submission_id},
+            {"$set": {"updatedAt": now}, "$push": {"audit": event}},
+            return_document=ReturnDocument.AFTER,
+        )
+        if not result:
+            raise HTTPException(status_code=404, detail="Submission not found.")
+        save_audit_event(event)
+        updated = normalize_document(result)
+        updated["auditHistory"] = audit_history_for_submission(updated)
+        return {"submission": updated}
+
+    stored_items = get_local_submissions()
+    index = next((i for i, item in enumerate(stored_items) if item.get("id") == submission_id), -1)
+    if index == -1:
+        raise HTTPException(status_code=404, detail="Submission not found.")
+    stored_items[index]["updatedAt"] = now
+    stored_items[index].setdefault("audit", []).append(event)
     save_local_submissions(stored_items)
     stored_items[index]["auditHistory"] = audit_history_for_submission(stored_items[index])
     return {"submission": stored_items[index]}
