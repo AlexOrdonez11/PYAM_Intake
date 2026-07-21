@@ -12,7 +12,7 @@ import bcrypt
 import jwt
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field
 from pymongo import ASCENDING, MongoClient, ReturnDocument
@@ -745,11 +745,11 @@ def list_form_drafts(admin: dict[str, Any] = Depends(require_admin)) -> dict[str
     return {"drafts": get_draft_templates()}
 
 
-@app.delete("/api/forms/{form_id}/draft", status_code=204)
+@app.delete("/api/forms/{form_id}/draft", status_code=204, response_class=Response)
 def delete_form_draft(
     form_id: str,
     admin: dict[str, Any] = Depends(require_admin),
-) -> None:
+) -> Response:
     actor = audit_actor(admin)
     event = audit_event(
         "form_template_draft_discarded",
@@ -764,14 +764,14 @@ def delete_form_draft(
         if result.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Draft template not found.")
         save_audit_event(event)
-        return None
+        return Response(status_code=204)
 
     templates = read_json(TEMPLATES_FILE, [])
     next_templates = [template for template in templates if not (template.get("id") == form_id and template.get("status") == "draft")]
     if len(next_templates) == len(templates):
         raise HTTPException(status_code=404, detail="Draft template not found.")
     write_json(TEMPLATES_FILE, next_templates)
-    return None
+    return Response(status_code=204)
 
 
 @app.get("/api/forms/{form_id}/versions")
@@ -1141,6 +1141,78 @@ def update_patient_draft(resume_code: str, payload: PatientDraftUpdate) -> dict[
     save_local_submissions(stored_items)
     stored_items[index]["auditHistory"] = audit_history_for_submission(stored_items[index])
     return {"draft": stored_items[index], "form": form}
+
+
+@app.post("/api/patient-drafts/{resume_code}/submit", status_code=201)
+def submit_patient_draft(resume_code: str, payload: PatientDraftUpdate) -> dict[str, dict[str, Any]]:
+    existing = find_patient_draft_by_code(resume_code)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Resume draft not found.")
+
+    form = next((item for item in get_templates() if item.get("id") == existing.get("formId")), None)
+    if not form:
+        raise HTTPException(status_code=400, detail="Original form template is no longer active.")
+
+    scored_answers = add_calculated_scores(form["id"], payload.answers)
+    validation_errors = validate_submission(form, scored_answers)
+    if validation_errors:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "Submission is missing required information.",
+                "details": validation_errors,
+            },
+        )
+
+    now = utc_now()
+    actor = audit_actor(None)
+    event = audit_event(
+        "patient_draft_submitted",
+        actor,
+        existing["id"],
+        metadata={
+            "formId": form["id"],
+            "formName": form["name"],
+            "formTemplateVersion": int(form.get("version", 1)),
+            "resumeCode": existing.get("resumeCode"),
+            "requiredMissingCount": 0,
+        },
+    )
+    event["at"] = now
+    set_fields = {
+        "answers": scored_answers,
+        "patientName": patient_name_from_answers(scored_answers),
+        "patientDob": scored_answers.get("date_of_birth"),
+        "status": "new",
+        "updatedAt": now,
+        "submittedAt": now,
+        "submittedBy": actor,
+    }
+    review_submission = {**existing, **set_fields}
+    set_fields["review"] = review_for_submission(review_submission)
+
+    if mongo_db is not None:
+        updated = submissions().find_one_and_update(
+            {"id": existing["id"], "status": "draft"},
+            {"$set": set_fields, "$push": {"audit": event}},
+            return_document=ReturnDocument.AFTER,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Resume draft not found.")
+        save_audit_event(event)
+        submission = normalize_document(updated)
+        submission["auditHistory"] = audit_history_for_submission(submission)
+        return {"submission": submission}
+
+    stored_items = get_local_submissions()
+    index = next((i for i, item in enumerate(stored_items) if item.get("id") == existing["id"] and item.get("status") == "draft"), -1)
+    if index == -1:
+        raise HTTPException(status_code=404, detail="Resume draft not found.")
+    stored_items[index] = {**stored_items[index], **set_fields}
+    stored_items[index].setdefault("audit", []).append(event)
+    save_local_submissions(stored_items)
+    stored_items[index]["auditHistory"] = audit_history_for_submission(stored_items[index])
+    return {"submission": stored_items[index]}
 
 
 @app.patch("/api/submissions/{submission_id}")

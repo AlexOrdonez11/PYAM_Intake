@@ -1,3 +1,6 @@
+import { useState } from "react";
+import { BrandLogo } from "../components/layout/BrandLogo";
+
 export function calculateAge(dateOfBirth) {
   if (!dateOfBirth) return null;
   const birth = new Date(`${dateOfBirth}T00:00:00`);
@@ -85,7 +88,16 @@ export function recommendFormsFromRouting(formData) {
   return unique(ids);
 }
 
-export function WelcomePage({ onRoute, onShowAllForms, onStartOver, isStaff }) {
+export function WelcomePage({ onRoute, onShowAllForms, onStartOver, onResumeDraft, isStaff }) {
+  const [resumeCode, setResumeCode] = useState("");
+  const normalizedResumeCode = resumeCode.trim().toUpperCase();
+
+  function submitResumeLookup(event) {
+    event.preventDefault();
+    if (!normalizedResumeCode) return;
+    onResumeDraft(normalizedResumeCode);
+  }
+
   return (
     <section className="view active" aria-label="Start intake">
       <div className="welcome-layout">
@@ -146,9 +158,28 @@ export function WelcomePage({ onRoute, onShowAllForms, onStartOver, isStaff }) {
               <button className="primary-button" type="submit">Continue</button>
             </div>
           </form>
+          <form className="resume-lookup" onSubmit={submitResumeLookup} aria-label="Resume saved intake">
+            <div>
+              <strong>Already started?</strong>
+              <p>Enter your resume code to continue a saved intake.</p>
+            </div>
+            <div className="resume-lookup-control">
+              <label htmlFor="resume-code">Resume code</label>
+              <input
+                id="resume-code"
+                className="field-control"
+                value={resumeCode}
+                onChange={(event) => setResumeCode(event.target.value)}
+                placeholder="ABC123"
+                autoCapitalize="characters"
+                autoComplete="off"
+                spellCheck="false"
+              />
+              <button className="secondary-button" type="submit" disabled={!normalizedResumeCode}>Resume</button>
+            </div>
+          </form>
         </section>
       </div>
     </section>
   );
 }
-import { BrandLogo } from "../components/layout/BrandLogo";

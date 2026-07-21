@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "powershell -ExecutionPolicy Bypass -File ./start-local.ps1",
     "start": "powershell -ExecutionPolicy Bypass -File ./start-local.ps1",
-    "frontend:build": "npm --prefix frontend run build",
-    "frontend:dev": "npm --prefix frontend run dev",
-    "frontend:smoke": "npm --prefix frontend run smoke:routes"
+    "backend:test": ".\\.venv\\Scripts\\python.exe tests\\run_tests.py",
+    "frontend:build": "cd frontend && npm run build",
+    "frontend:dev": "cd frontend && npm run dev",
+    "frontend:smoke": "cd frontend && npm run smoke:routes"
   },
   "engines": {
     "node": ">=18"

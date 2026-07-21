@@ -1,6 +1,6 @@
 # PYAM Intake Backlog
 
-Last updated: 2026-07-20
+Last updated: 2026-07-21
 
 ## Status Legend
 
@@ -23,8 +23,8 @@ Last updated: 2026-07-20
 | Done | P1 | Section progress | Intake forms show overall completion and per-section progress chips. |
 | Done | P1 | Review before submit | Bottom review panel checks required fields, sections, signatures, and incomplete ASQ groups before submit. |
 | Done | P1 | Repeated demographic cleanup | Common repeated fields like name/DOB are autofilled or removed from patient-facing sections where appropriate. |
-| Next | P0 | Submit server draft as final submission | Resume drafts currently save/update drafts. Final submit should convert the draft record instead of creating duplicates. |
-| Next | P1 | Resume-code lookup UI | Add a small "Resume intake" entry point on the patient start page, not only direct `/resume/{code}` links. |
+| Done | P0 | Submit server draft as final submission | Resumed patient drafts now finalize the existing draft record as a `new` submission instead of creating duplicates. |
+| Done | P1 | Resume-code lookup UI | Patient start page now includes a resume-code entry point that opens the existing `/resume/{code}` flow. |
 | Next | P1 | Multi-form resume bundle | Current resume support is form-level. Intake routing can recommend multiple forms, so resume should eventually cover the whole packet. |
 | Later | P2 | Patient-friendly mobile refinements | Long forms need more mobile QA, sticky progress behavior, and keyboard/focus polish. |
 | Later | P2 | Multi-language support | Not started. |
@@ -58,7 +58,7 @@ Last updated: 2026-07-20
 | Done | P1 | Activity timeline | Submission detail shows audit history for creation, status changes, staff saves, and PDF export. |
 | Done | P1 | Data quality warnings | Staff sidebar flags missing DOB/name/phone, age-form mismatch, incomplete scores, future dates, and missing staff fields. |
 | Done | P1 | PDF export | Staff can open a printable/PDF summary from the submission detail page. |
-| Next | P0 | Status transition guardrails | Marking `Completed` or `Ready for chart` should warn/block if checklist or data quality has high issues. |
+| Done | P0 | Status transition guardrails | Marking `Completed` or `Ready for chart` now blocks unresolved checklist/high data-quality issues and warns on softer review concerns. |
 | Next | P1 | Staff notes / internal comments | There is audit history, but no explicit staff note/comment thread yet. |
 | Next | P1 | Assignment queue | No owner assignment, team queue, or "assigned to me" filtering yet. |
 | Later | P2 | Bulk actions | No bulk status changes, export, or assignment. |
@@ -72,7 +72,7 @@ Last updated: 2026-07-20
 | Done | P1 | ASQ dynamic legend | ASQ score ranges show delayed/monitor/on-schedule colors and update with answers. |
 | Done | P1 | Read-only calculated staff fields | Staff cannot edit calculated score fields directly. |
 | Partial | P0 | Scoring coverage audit | Most scoring systems are implemented, but every PDF/template should be checked for hidden or nonstandard scoring. |
-| Next | P0 | Scoring test fixtures | Add tests with known input/expected score outputs for every scoring system. |
+| Done | P0 | Scoring test fixtures | Backend tests cover ASQ, EPDS, PHQ/GAD, CRAFFT, M-CHAT, ACT/C-ACT, ASRS, ACE, PSC/PPSC, SCARED, and Vanderbilt calculations. |
 | Next | P1 | Scoring provenance display | Staff should see which answers contributed to each score and how totals were derived. |
 | Later | P2 | Clinical threshold configuration | Thresholds are coded today. Admin-editable scoring config is not started. |
 
@@ -99,9 +99,9 @@ Last updated: 2026-07-20
 | Done | P1 | Database schema/init scripts | Scripts initialize collections/indexes and seed data. |
 | Done | P1 | Audit events collection | Audit events are persisted for submissions and template actions. |
 | Partial | P1 | Patients collection | Collection exists/planned, but reusable patient profile workflow is not fully implemented. |
-| Next | P0 | Convert draft to final submission | Needed for resume code workflow and clean staff queue history. |
+| Done | P0 | Convert draft to final submission | `/api/patient-drafts/{resume_code}/submit` validates answers, recalculates scores, and promotes the draft to the staff queue. |
 | Next | P1 | Backend data quality summaries | Data quality warnings are frontend-only today. Add summary fields to submission list API. |
-| Next | P1 | API tests | Add backend tests for auth, forms, submissions, drafts, scoring, and CORS behavior. |
+| Done | P1 | API tests | Backend tests cover auth flow, forms listing, submission create/list/detail validation, patient draft finalization, local draft deletion, and CORS defaults. |
 | Later | P2 | Background jobs | Not started. Useful for reminders, draft cleanup, and scheduled reporting. |
 
 ### Deployment And DevOps
@@ -148,11 +148,20 @@ Last updated: 2026-07-20
 ## Immediate Recommended Sprint
 
 1. Redeploy backend and both Vercel frontends so production has the recent API/UI changes.
-2. Implement draft-to-final conversion for patient resume drafts.
-3. Add resume-code entry on the patient start page.
-4. Add status transition guardrails for `Ready for chart` and `Completed`.
-5. Add backend tests for scoring and patient draft APIs.
-6. Start a form QA tracker for all 50 active templates.
+2. Start a form QA tracker for all 50 active templates.
+3. Add scoring provenance display on the staff submission detail page.
+4. Add backend data quality summaries to the submission list API.
+5. Add staff notes / internal comments on submission detail pages.
+6. Add CI checks for frontend build, backend tests, readiness checks, and secret scanning.
+
+## Recently Completed
+
+- 2026-07-21: Added patient draft finalization so resumed drafts submit into the existing record instead of creating duplicate submissions.
+- 2026-07-21: Added a resume-code lookup on the patient start page.
+- 2026-07-21: Added staff status guardrails for `Ready for chart` and `Completed`.
+- 2026-07-21: Added backend unit tests for ASQ/EPDS scoring and patient draft finalization.
+- 2026-07-21: Expanded backend scoring fixtures across the current calculated screening systems.
+- 2026-07-21: Added backend API workflow tests for auth, forms, submissions, drafts, and CORS defaults.
 
 ## Known Production Blockers
 

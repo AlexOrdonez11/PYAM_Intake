@@ -203,6 +203,7 @@ export default function App() {
   const [formError, setFormError] = useState(false);
   const [completionNotice, setCompletionNotice] = useState(null);
   const [draftNotice, setDraftNotice] = useState(null);
+  const [serverResumeDraft, setServerResumeDraft] = useState(null);
   const [resumeSaving, setResumeSaving] = useState(false);
   const [staffMessage, setStaffMessage] = useState("");
   const [staffError, setStaffError] = useState(false);
@@ -232,6 +233,21 @@ export default function App() {
       return;
     }
     const initialAnswers = initialAnswersForForm(selectedForm);
+    if (serverResumeDraft?.formId === selectedForm.id) {
+      setAnswers(addCalculatedScores(selectedForm.id, { ...initialAnswers, ...(serverResumeDraft.answers || {}) }));
+      setDraftNotice({
+        formId: serverResumeDraft.formId,
+        formName: serverResumeDraft.formName,
+        savedAt: serverResumeDraft.updatedAt || serverResumeDraft.createdAt,
+        restored: true,
+        serverDraft: true,
+        resumeCode: serverResumeDraft.resumeCode,
+        resumeUrl: `${window.location.origin}/resume/${serverResumeDraft.resumeCode}`
+      });
+      setFormMessage("");
+      setFormError(false);
+      return;
+    }
     const storedDraft = mode === "patient" ? draftForForm(selectedForm.id) : null;
     if (storedDraft?.answers) {
       setAnswers(addCalculatedScores(selectedForm.id, { ...initialAnswers, ...storedDraft.answers }));
@@ -242,18 +258,18 @@ export default function App() {
     }
     setFormMessage("");
     setFormError(false);
-  }, [selectedForm, mode]);
+  }, [selectedForm, mode, serverResumeDraft]);
 
   useEffect(() => {
     if (!selectedForm || mode !== "patient") return;
     const timer = window.setTimeout(() => {
       if (!hasMeaningfulDraftAnswers(selectedForm, answers)) {
         removeDraftForForm(selectedForm.id);
-        setDraftNotice(null);
+        setDraftNotice((current) => current?.serverDraft && current.formId === selectedForm.id ? current : null);
         return;
       }
       const saved = saveDraftForForm(selectedForm, answers);
-      setDraftNotice({ ...saved, restored: false });
+      setDraftNotice((current) => current?.serverDraft && current.formId === selectedForm.id ? current : { ...saved, restored: false });
     }, 700);
     return () => window.clearTimeout(timer);
   }, [answers, mode, selectedForm]);
@@ -447,6 +463,7 @@ export default function App() {
     setCompletedFormIds([]);
     clearAllDrafts();
     setDraftNotice(null);
+    setServerResumeDraft(null);
     setSelectedFormId(null);
     navigateToView("welcome");
   }
@@ -474,6 +491,7 @@ export default function App() {
     setCompletedFormIds([]);
     clearAllDrafts();
     setDraftNotice(null);
+    setServerResumeDraft(null);
     setSelectedFormId(null);
     navigateToView(IS_STAFF_APP ? "login" : "login");
   }
@@ -483,10 +501,17 @@ export default function App() {
     setRecommendedFormIds(ids);
     setCompletedFormIds([]);
     setDraftNotice(null);
+    setServerResumeDraft(null);
     setRoutingComplete(true);
     setShowAllForms(false);
     setSelectedFormId(ids[0] || null);
     navigateToView("intake");
+  }
+
+  function handleResumeLookup(resumeCode) {
+    const normalizedCode = String(resumeCode || "").trim().toUpperCase();
+    if (!normalizedCode) return;
+    navigate(`/resume/${encodeURIComponent(normalizedCode)}`);
   }
 
   function showAllStaffForms() {
@@ -542,10 +567,17 @@ export default function App() {
     }
     try {
       const submittedFormId = selectedForm.id;
-      const payload = await api("/api/submissions", {
-        method: "POST",
-        body: JSON.stringify({ formId: submittedFormId, answers: buildSubmissionAnswers(selectedForm, addCalculatedScores(submittedFormId, answers), mode) })
-      }, authToken);
+      const submissionAnswers = buildSubmissionAnswers(selectedForm, addCalculatedScores(submittedFormId, answers), mode);
+      const resumeCode = draftNotice?.serverDraft && draftNotice.formId === submittedFormId ? draftNotice.resumeCode : "";
+      const payload = resumeCode
+        ? await api(`/api/patient-drafts/${encodeURIComponent(resumeCode)}/submit`, {
+          method: "POST",
+          body: JSON.stringify({ answers: submissionAnswers })
+        }, "")
+        : await api("/api/submissions", {
+          method: "POST",
+          body: JSON.stringify({ formId: submittedFormId, answers: submissionAnswers })
+        }, authToken);
       removeDraftForForm(submittedFormId);
       const nextCompletedFormIds = [...new Set([...completedFormIds, submittedFormId])];
       const pendingRecommendedIds = recommendedFormIds.filter((id) => !nextCompletedFormIds.includes(id));
@@ -558,6 +590,7 @@ export default function App() {
         nextFormName: forms.find((form) => form.id === pendingRecommendedIds[0])?.name || ""
       });
       setDraftNotice(null);
+      setServerResumeDraft(null);
       setSelectedFormId(nextFormId || submittedFormId);
       setAnswers(initialAnswersForForm(forms.find((form) => form.id === (nextFormId || submittedFormId))));
       await loadSubmissions();
@@ -575,6 +608,7 @@ export default function App() {
       const form = payload.form;
       const draft = payload.draft;
       setForms((current) => current.some((item) => item.id === form.id) ? current : [...current, form]);
+      setServerResumeDraft(draft);
       setMode("patient");
       setShowAllForms(false);
       setRoutingComplete(true);
@@ -615,6 +649,7 @@ export default function App() {
         ? await api(`/api/patient-drafts/${encodeURIComponent(resumeCode)}`, { method: "PATCH", body }, "")
         : await api("/api/patient-drafts", { method: "POST", body }, "");
       const serverDraft = payload.draft;
+      setServerResumeDraft(serverDraft);
       setDraftNotice({
         formId: serverDraft.formId,
         formName: serverDraft.formName,
@@ -728,7 +763,15 @@ export default function App() {
       />
   );
 
-  const welcomePage = <WelcomePage onRoute={handleRoute} onShowAllForms={showAllStaffForms} onStartOver={continuePatient} isStaff={isStaff && !IS_PATIENT_APP} />;
+  const welcomePage = (
+    <WelcomePage
+      onRoute={handleRoute}
+      onShowAllForms={showAllStaffForms}
+      onStartOver={continuePatient}
+      onResumeDraft={handleResumeLookup}
+      isStaff={isStaff && !IS_PATIENT_APP}
+    />
+  );
 
   const intakePage = (
     <IntakePage
@@ -752,6 +795,7 @@ export default function App() {
         setCompletionNotice(null);
         removeDraftForForm(selectedForm?.id);
         setDraftNotice(null);
+        setServerResumeDraft(null);
         setFormError(false);
       }}
       onStartOver={continuePatient}
@@ -765,6 +809,7 @@ export default function App() {
         removeDraftForForm(selectedForm?.id);
         setAnswers(initialAnswersForForm(selectedForm));
         setDraftNotice(null);
+        setServerResumeDraft(null);
         setFormMessage("");
         setFormError(false);
       }}

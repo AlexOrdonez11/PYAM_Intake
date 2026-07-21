@@ -604,6 +604,47 @@ body.patient-mode[data-view="intake"] .intake-brand-row {
   padding-top: 4px;
 }
 
+.resume-lookup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.85fr);
+  gap: 18px;
+  align-items: end;
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 2px solid var(--line);
+}
+
+.resume-lookup strong {
+  display: block;
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.resume-lookup p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.resume-lookup-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.resume-lookup-control label {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.resume-lookup-control input {
+  text-transform: uppercase;
+}
+
 .form-list {
   display: grid;
   gap: 12px;
@@ -3605,6 +3646,15 @@ textarea.field-control {
     position: static;
     justify-self: end;
     margin-bottom: 18px;
+  }
+
+  .resume-lookup,
+  .resume-lookup-control {
+    grid-template-columns: 1fr;
+  }
+
+  .resume-lookup-control .secondary-button {
+    width: 100%;
   }
 
   .field-grid,

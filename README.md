@@ -32,6 +32,16 @@ http://localhost:5177
 
 Without `MONGO_URI`, the backend uses local JSON files in `backend/data/` so the prototype still runs. With `MONGO_URI`, staff users and submissions are saved in MongoDB. `MONGODB_URI` also works as a local fallback alias.
 
+## Testing
+
+Run the backend unit tests from the repo root:
+
+```powershell
+npm run backend:test
+```
+
+The current tests cover calculated scoring fixtures, auth flow, forms, submissions, patient draft finalization, and CORS defaults. They force local JSON storage during the test run, so they do not touch MongoDB or the demo database.
+
 ## Environment
 
 Copy `.env.example` into your deployment environment and set:

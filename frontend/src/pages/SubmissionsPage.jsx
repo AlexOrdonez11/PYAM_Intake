@@ -622,6 +622,34 @@ function getStaffReviewChecklist({ submission, staffFields, answers, scoringCard
   ];
 }
 
+function statusTransitionGuardrails({ targetStatus, reviewChecklist, dataQualityWarnings, submission, scoringCards }) {
+  if (!["ready-for-chart", "complete"].includes(targetStatus)) {
+    return { blocked: [], warnings: [] };
+  }
+
+  const blocked = [];
+  const warnings = [];
+  const requiredChecklistIssues = reviewChecklist.filter((item) => item.key !== "status" && item.state === "needs-work");
+  const highQualityWarnings = dataQualityWarnings.filter((item) => item.severity === "high");
+  const mediumQualityWarnings = dataQualityWarnings.filter((item) => item.severity === "medium");
+  const reviewFlags = submission?.review?.flags || [];
+  const highReviewFlags = reviewFlags.filter((flag) => flag.severity === "high");
+  const mediumReviewFlags = reviewFlags.filter((flag) => flag.severity === "medium");
+  const concerningScores = scoringCards.filter((card) => card.status === "below" || card.status === "monitor");
+
+  blocked.push(...requiredChecklistIssues.map((item) => item.label));
+  blocked.push(...highQualityWarnings.map((item) => item.label));
+  warnings.push(...mediumQualityWarnings.map((item) => item.label));
+  warnings.push(...highReviewFlags.map((flag) => flag.label));
+  warnings.push(...mediumReviewFlags.map((flag) => flag.label));
+  warnings.push(...concerningScores.map((card) => `${card.label}: ${card.outcome}`));
+
+  return {
+    blocked: [...new Set(blocked)],
+    warnings: [...new Set(warnings)].filter((item) => !blocked.includes(item))
+  };
+}
+
 function StaffReviewChecklist({ items }) {
   const requiredItems = items.filter((item) => item.state !== "optional");
   const completedRequired = requiredItems.filter((item) => item.state === "ready").length;
@@ -657,6 +685,7 @@ function formatAuditAction(action) {
   const labels = {
     created: "Submission created",
     submission_created: "Submission created",
+    patient_draft_submitted: "Draft submitted",
     updated: "Submission updated",
     submission_updated: "Submission updated",
     status_changed: "Status changed",
@@ -674,7 +703,7 @@ function actorLabel(event) {
 }
 
 function auditTone(action) {
-  if (action === "submission_created" || action === "created") return "created";
+  if (action === "submission_created" || action === "patient_draft_submitted" || action === "created") return "created";
   if (action === "status_changed") return "status";
   if (action === "staff_review_updated") return "review";
   if (action === "pdf_exported") return "export";
@@ -685,6 +714,9 @@ function auditDescription(event) {
   const metadata = event.metadata || {};
   if (event.action === "submission_created" || event.action === "created") {
     return `${metadata.formName || "Intake form"} submitted${metadata.requiredMissingCount ? ` with ${metadata.requiredMissingCount} missing required item${metadata.requiredMissingCount === 1 ? "" : "s"}` : ""}.`;
+  }
+  if (event.action === "patient_draft_submitted") {
+    return `${metadata.formName || "Intake form"} submitted from saved draft${metadata.resumeCode ? ` ${metadata.resumeCode}` : ""}.`;
   }
   if (event.action === "status_changed") {
     return `Status moved from ${statusLabelText(metadata.previousStatus || "new")} to ${statusLabelText(metadata.newStatus || "new")}.`;
@@ -938,6 +970,40 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
     }
   }
 
+  async function handleStatusChange(nextStatus) {
+    if (!selectedSubmission) return;
+    setStaffMessage("");
+
+    const guardrails = statusTransitionGuardrails({
+      targetStatus: nextStatus,
+      reviewChecklist,
+      dataQualityWarnings,
+      submission: selectedSubmission,
+      scoringCards
+    });
+
+    if (guardrails.blocked.length) {
+      setStaffMessage(`Cannot mark ${statusLabelText(nextStatus)} yet. Resolve: ${guardrails.blocked.slice(0, 4).join(", ")}${guardrails.blocked.length > 4 ? ", and more" : ""}.`);
+      return;
+    }
+
+    if (guardrails.warnings.length) {
+      const confirmed = window.confirm(
+        `This record still has review items before ${statusLabelText(nextStatus)}:\n\n` +
+        guardrails.warnings.slice(0, 8).map((item) => `- ${item}`).join("\n") +
+        `${guardrails.warnings.length > 8 ? "\n- More items not shown" : ""}\n\nContinue anyway?`
+      );
+      if (!confirmed) return;
+    }
+
+    try {
+      await onStatusChange(selectedSubmission.id, nextStatus, staffDraft);
+      setStaffMessage(`Status updated to ${statusLabelText(nextStatus)}.`);
+    } catch (error) {
+      setStaffMessage(error.message || "Unable to update status.");
+    }
+  }
+
   async function handleExportPdf() {
     if (!selectedSubmission) return;
     exportSubmissionPdf({ submission: selectedSubmission, form: selectedForm, answers: selectedAnswers, staffFields, fieldMap, insights: selectedInsights, scoringCards });
@@ -973,7 +1039,7 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
             </div>
             <div className="detail-actions">
               {detailOnly ? <button className="secondary-button" type="button" onClick={onBack}>Back to queue</button> : null}
-              <select className="select-input" aria-label="Submission status" value={selectedSubmission.status} onChange={(event) => onStatusChange(selectedSubmission.id, event.target.value)}>
+              <select className="select-input" aria-label="Submission status" value={selectedSubmission.status} onChange={(event) => handleStatusChange(event.target.value)}>
                 {SUBMISSION_STATUSES.map(([status, label]) => (
                   <option value={status} key={status}>{label}</option>
                 ))}
@@ -1033,6 +1099,7 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
               <DataQualityPanel warnings={dataQualityWarnings} />
               <StaffReviewChecklist items={reviewChecklist} />
               <ReviewOwnership submission={selectedSubmission} />
+              {staffMessage ? <div className="message staff-status-message" role="status">{staffMessage}</div> : null}
               <ScoreInsights insights={selectedInsights} />
               {staffFields.length ? (
                 <section className="review-edit-panel">
@@ -1056,7 +1123,6 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
                       />
                     ))}
                   </div>
-                  {staffMessage ? <div className="message" role="status">{staffMessage}</div> : null}
                 </section>
               ) : null}
               <AuditHistory events={selectedAuditEvents} />
