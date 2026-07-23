@@ -124,6 +124,48 @@ class ApiWorkflowTests(unittest.TestCase):
         self.assertEqual(response["submission"]["status"], "new")
         self.assertEqual(response["submission"]["patientName"], "Mayo Demo")
 
+    def test_explicit_patient_owner_overrides_staff_only_inference(self):
+        self.state.stop()
+        patient_override_template = {
+            "id": "patient-owner-override-test",
+            "name": "Patient Owner Override Test",
+            "category": "Tests",
+            "status": "active",
+            "version": 1,
+            "sections": [
+                {
+                    "title": "Patient and Visit Information",
+                    "fields": [
+                        {"id": "patient_name", "label": "Patient name", "type": "text", "required": True},
+                        {"id": "date_of_birth", "label": "Date of birth", "type": "date", "required": True},
+                        {"id": "baby_id", "label": "Baby ID #", "type": "text", "required": True, "owner": "patient", "staffOnly": False},
+                    ],
+                }
+            ],
+        }
+        self.state = IsolatedBackendState(api, templates=[patient_override_template]).start()
+
+        with self.assertRaises(HTTPException) as raised:
+            api.create_submission(
+                api.SubmissionCreate(
+                    formId="patient-owner-override-test",
+                    answers={"patient_name": "Mayo Demo", "date_of_birth": "2024-01-01"},
+                ),
+                request_user=None,
+            )
+
+        self.assertEqual(raised.exception.status_code, 422)
+
+        response = api.create_submission(
+            api.SubmissionCreate(
+                formId="patient-owner-override-test",
+                answers={"patient_name": "Mayo Demo", "date_of_birth": "2024-01-01", "baby_id": "BABY-1"},
+            ),
+            request_user=None,
+        )
+
+        self.assertEqual(response["submission"]["answers"]["baby_id"], "BABY-1")
+
     def test_delete_form_draft_removes_local_draft_template(self):
         draft_template = {
             "id": "draft-test",

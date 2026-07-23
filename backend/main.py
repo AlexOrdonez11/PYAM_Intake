@@ -441,6 +441,8 @@ def flatten_template_fields(template: dict[str, Any]) -> list[dict[str, Any]]:
 def is_staff_or_internal_field(field: dict[str, Any]) -> bool:
     field_id = str(field.get("id") or "").lower()
     label = str(field.get("label") or "").lower()
+    if field.get("staffOnly") is False or field.get("owner") == "patient":
+        return False
     return (
         bool(field.get("staffOnly")) or
         field.get("owner") == "staff" or

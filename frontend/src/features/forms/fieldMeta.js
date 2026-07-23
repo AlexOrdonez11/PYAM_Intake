@@ -66,7 +66,9 @@ export function demographicAutofillValue(field, answers) {
 
 export function isStaffOnlyField(field) {
   if (!field) return false;
+  if (field.staffOnly === false || field.owner === "patient") return false;
   if (field.staffOnly) return true;
+  if (field.owner === "staff") return true;
 
   const id = String(field.id || "").toLowerCase();
   const label = String(field.label || "").toLowerCase();
@@ -74,7 +76,14 @@ export function isStaffOnlyField(field) {
   if (["baby_id", "child_id", "patient_id"].includes(id)) return true;
   if (label.includes("baby id") || label.includes("child id") || label.includes("patient id")) return true;
   if (id.startsWith("lead_")) return true;
-  if (id.startsWith("mnvfc_")) return true;
+  if (id.startsWith("mnvfc_") && (
+    id.includes("staff") ||
+    id.includes("notes") ||
+    id.includes("review") ||
+    id.includes("verified") ||
+    id.includes("processed") ||
+    id.includes("completed_by")
+  )) return true;
   if (id.includes("staff_notes")) return true;
   if (id.includes("total_score") || id.endsWith("_score")) return true;
   if (id.includes("_zone") || label.includes("score zone")) return true;

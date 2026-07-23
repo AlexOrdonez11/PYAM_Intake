@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { FormRenderer } from "../features/forms/FormRenderer";
+import { isStaffOnlyField } from "../features/forms/fieldMeta";
 
 const FIELD_TYPES = ["text", "email", "tel", "date", "number", "datetime-local", "textarea", "select", "radio", "multicheck", "checkbox", "scale", "signature"];
 
@@ -549,7 +550,7 @@ function TemplateEditor({ original, draft, onChange, onSave, onReset, saving, me
                   </div>
                   <div className="template-field-flags">
                     <label className="choice-option"><input type="checkbox" checked={Boolean(field.required)} onChange={(event) => patchField(sectionIndex, fieldIndex, (nextField) => ({ ...nextField, required: event.target.checked }))} /><span>Required</span></label>
-                    <label className="choice-option"><input type="checkbox" checked={field.owner === "staff" || field.staffOnly === true} onChange={(event) => patchField(sectionIndex, fieldIndex, (nextField) => ({ ...nextField, owner: event.target.checked ? "staff" : "patient", staffOnly: event.target.checked || undefined }))} /><span>Staff-only</span></label>
+                    <label className="choice-option"><input type="checkbox" checked={isStaffOnlyField(field)} onChange={(event) => patchField(sectionIndex, fieldIndex, (nextField) => ({ ...nextField, owner: event.target.checked ? "staff" : "patient", staffOnly: event.target.checked }))} /><span>Staff-only</span></label>
                     <button className="secondary-button icon-button-text" type="button" onClick={() => duplicateField(sectionIndex, fieldIndex)}>Duplicate</button>
                     <button className="ghost-button" type="button" onClick={() => patchSection(sectionIndex, (nextSection) => ({ ...nextSection, fields: (nextSection.fields || []).filter((_, index) => index !== fieldIndex) }))}>Remove field</button>
                   </div>
