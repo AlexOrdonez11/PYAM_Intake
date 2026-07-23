@@ -859,7 +859,7 @@ def update_form_template(
     form_id: str,
     payload: FormTemplateUpdate,
     admin: dict[str, Any] = Depends(require_admin),
-) -> dict[str, dict[str, Any]]:
+) -> dict[str, Any]:
     template = validate_form_template(payload.template)
     if template["id"] != form_id:
         raise HTTPException(status_code=400, detail="Template id cannot be changed from this endpoint.")

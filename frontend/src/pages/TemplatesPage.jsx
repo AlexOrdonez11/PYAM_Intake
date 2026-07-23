@@ -238,7 +238,7 @@ function ChangeSummary({ summary }) {
         <span><strong>{summary.removed.length}</strong> removed</span>
         <span><strong>{summary.sectionCountChanged ? "Yes" : "No"}</strong> section layout</span>
       </div>
-      {summary.scoringSensitive ? <p className="template-sensitive-note">Scoring-sensitive fields changed. Save a draft and preview before publishing.</p> : null}
+      {summary.scoringSensitive ? <p className="template-sensitive-note">Scoring-sensitive fields changed. Review the preview before publishing.</p> : null}
       <ul className="template-change-list">
         {summary.added.slice(0, 3).map((field) => <li key={`added-${field.id}`}>Added: {field.label || field.id}</li>)}
         {summary.changed.slice(0, 3).map(({ field, changes }) => <li key={`changed-${field.id}`}>Changed: {field.label || field.id} ({changes.join(", ")})</li>)}
@@ -248,23 +248,20 @@ function ChangeSummary({ summary }) {
   );
 }
 
-function TemplateEditor({ original, draft, onChange, onSave, onSaveDraft, onReset, saving, message, error }) {
+function TemplateEditor({ original, draft, onChange, onSave, onReset, saving, message, error }) {
   const [jsonOpen, setJsonOpen] = useState(false);
   const [jsonDraft, setJsonDraft] = useState("");
   const [activeTab, setActiveTab] = useState("builder");
   const [previewMode, setPreviewMode] = useState("patient");
   const [previewAnswers, setPreviewAnswers] = useState({});
-  const [publishConfirmed, setPublishConfirmed] = useState(false);
   const [draggedField, setDraggedField] = useState(null);
   const issues = templateIssues(draft);
   const publishErrors = issues.filter((issue) => issue.severity === "error");
   const changeSummary = templateChangeSummary(original, draft);
-  const publishBlockedByConfirmation = changeSummary.scoringSensitive && !publishConfirmed;
 
   useEffect(() => {
     setJsonDraft(JSON.stringify(draft, null, 2));
     setPreviewAnswers(initialPreviewAnswers(draft));
-    setPublishConfirmed(false);
   }, [draft]);
 
   function patchTemplate(updater) {
@@ -375,19 +372,12 @@ function TemplateEditor({ original, draft, onChange, onSave, onSaveDraft, onRese
         <div className="detail-actions">
           <button className="secondary-button" type="button" onClick={() => setJsonOpen((open) => !open)}>Advanced JSON</button>
           <button className="secondary-button" type="button" onClick={onReset}>Reset</button>
-          <button className="secondary-button" type="button" onClick={onSaveDraft} disabled={saving || publishErrors.length > 0}>{saving ? "Saving" : "Save draft"}</button>
-          <button className="primary-button" type="button" onClick={onSave} disabled={saving || publishErrors.length > 0 || publishBlockedByConfirmation}>{saving ? "Publishing" : "Publish new version"}</button>
+          <button className="primary-button" type="button" onClick={onSave} disabled={saving || publishErrors.length > 0}>{saving ? "Publishing" : "Publish"}</button>
         </div>
       </div>
 
       {message ? <div className={`message ${error ? "error" : ""}`} role="status">{message}</div> : null}
       <ChangeSummary summary={changeSummary} />
-      {changeSummary.scoringSensitive ? (
-        <label className="template-publish-confirm">
-          <input type="checkbox" checked={publishConfirmed} onChange={(event) => setPublishConfirmed(event.target.checked)} />
-          <span>I reviewed scoring-sensitive changes and verified the preview.</span>
-        </label>
-      ) : null}
       <div className="template-editor-tabs" role="tablist" aria-label="Template editor views">
         {[
           ["builder", "Builder"],
@@ -736,7 +726,6 @@ export function TemplatesPage({ forms, templateDrafts = [], templateVersions = {
                 draft={draft}
                 onChange={setDraft}
                 onSave={saveTemplate}
-                onSaveDraft={saveDraft}
                 onReset={() => setDraft(cloneTemplate(selectedForm))}
                 saving={saving}
                 message={message}
