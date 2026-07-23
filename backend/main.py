@@ -588,6 +588,34 @@ def next_available_template_version(form_id: str, minimum: int | None = None) ->
     return version
 
 
+def prune_template_history(form_id: str) -> None:
+    if mongo_db is not None:
+        archived_versions = list(
+            form_templates().find({"id": form_id, "status": "archived"}).sort([("version", -1), ("updatedAt", -1)])
+        )
+        for template in archived_versions[1:]:
+            form_templates().delete_one({"_id": template["_id"]})
+        return
+
+    templates = read_json(TEMPLATES_FILE, [])
+    archived_for_form = sorted(
+        [template for template in templates if template.get("id") == form_id and template.get("status") == "archived"],
+        key=lambda item: (int(item.get("version", 1)), item.get("updatedAt", "")),
+        reverse=True,
+    )
+    keep_archived = archived_for_form[:1]
+    keep_archived_keys = {(item.get("id"), int(item.get("version", 1)), item.get("updatedAt", "")) for item in keep_archived}
+    next_templates = [
+        template
+        for template in templates
+        if template.get("id") != form_id
+        or template.get("status") != "archived"
+        or (template.get("id"), int(template.get("version", 1)), template.get("updatedAt", "")) in keep_archived_keys
+    ]
+    if len(next_templates) != len(templates):
+        write_json(TEMPLATES_FILE, next_templates)
+
+
 def patient_name_from_answers(answers: dict[str, Any]) -> str:
     explicit_name = answers.get("patient_name") or answers.get("child_name")
     if explicit_name:
@@ -931,6 +959,8 @@ def update_form_template(
                     event["metadata"]["version"] = template["version"]
             if saved is None:
                 raise HTTPException(status_code=409, detail="Unable to allocate a draft template version. Please retry.")
+        if payload.publish:
+            prune_template_history(form_id)
         save_audit_event(event)
         return {"form": normalize_document(saved), "warnings": warnings}
 
@@ -956,6 +986,8 @@ def update_form_template(
         else:
             templates[draft_index] = template
     write_json(TEMPLATES_FILE, templates)
+    if payload.publish:
+        prune_template_history(form_id)
     return {"form": template, "warnings": warnings}
 
 

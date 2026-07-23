@@ -127,6 +127,7 @@ function SubmissionDetailRoute({
   authToken,
   submissions,
   submissionsLoading,
+  submissionsLoaded,
   submissionDetailLoading,
   selectedSubmission,
   forms,
@@ -136,6 +137,12 @@ function SubmissionDetailRoute({
   onBack
 }) {
   const { submissionId } = useParams();
+  const waitingForSelectedSubmission = Boolean(submissionId) && (
+    submissionDetailLoading ||
+    !submissionsLoaded ||
+    selectedSubmission?.id !== submissionId ||
+    !selectedSubmission?.answers
+  );
 
   useEffect(() => {
     if (!authToken || !submissionId) return;
@@ -146,8 +153,8 @@ function SubmissionDetailRoute({
   return (
     <SubmissionsPage
       submissions={submissions}
-      isLoading={submissionsLoading}
-      detailLoading={submissionDetailLoading}
+      isLoading={submissionsLoading || !submissionsLoaded}
+      detailLoading={waitingForSelectedSubmission}
       selectedSubmission={selectedSubmission}
       forms={forms}
       onSelect={onSelect}
@@ -183,6 +190,7 @@ export default function App() {
   const [templateVersions, setTemplateVersions] = useState({});
   const [submissions, setSubmissions] = useState([]);
   const [submissionsLoading, setSubmissionsLoading] = useState(false);
+  const [submissionsLoaded, setSubmissionsLoaded] = useState(false);
   const [submissionsNextCursor, setSubmissionsNextCursor] = useState(null);
   const [submissionsHasMore, setSubmissionsHasMore] = useState(false);
   const [submissionQuery, setSubmissionQuery] = useState({ sort: "priority" });
@@ -341,6 +349,7 @@ export default function App() {
     if (!authToken) {
       setSubmissions([]);
       setSelectedSubmission(null);
+      setSubmissionsLoaded(false);
       setSubmissionsNextCursor(null);
       setSubmissionsHasMore(false);
       return;
@@ -353,6 +362,7 @@ export default function App() {
       setSubmissions((current) => append ? [...current, ...summaries] : summaries);
       setSubmissionsNextCursor(payload.nextCursor || null);
       setSubmissionsHasMore(Boolean(payload.hasMore));
+      setSubmissionsLoaded(true);
       setSelectedSubmission((current) => {
         if (!current) return null;
         const refreshedSummary = summaries.find((item) => item.id === current.id);
@@ -819,7 +829,7 @@ export default function App() {
   const submissionsPage = authToken ? (
     <SubmissionsPage
       submissions={submissions}
-      isLoading={submissionsLoading}
+      isLoading={submissionsLoading || !submissionsLoaded}
       detailLoading={submissionDetailLoading}
       selectedSubmission={selectedSubmission}
       forms={forms}
@@ -898,6 +908,7 @@ export default function App() {
             authToken={authToken}
             submissions={submissions}
             submissionsLoading={submissionsLoading}
+            submissionsLoaded={submissionsLoaded}
             submissionDetailLoading={submissionDetailLoading}
             selectedSubmission={selectedSubmission}
             forms={forms}

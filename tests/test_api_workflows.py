@@ -192,6 +192,35 @@ class ApiWorkflowTests(unittest.TestCase):
         self.assertEqual(len([item for item in templates if item.get("status") == "active"]), 1)
         self.assertEqual(len({(item["id"], item["version"]) for item in templates}), len(templates))
 
+    def test_published_template_history_keeps_current_and_previous_only(self):
+        active_template = {
+            "id": "history-test",
+            "name": "History Test",
+            "category": "Tests",
+            "status": "active",
+            "version": 1,
+            "sections": [{"title": "Patient", "fields": []}],
+        }
+        api.write_json(api.TEMPLATES_FILE, [active_template])
+        admin = {"id": "admin-1", "email": "admin@example.com", "name": "Admin", "role": "admin"}
+
+        version_two = api.update_form_template(
+            "history-test",
+            api.FormTemplateUpdate(template={**active_template, "description": "Second"}, publish=True),
+            admin=admin,
+        )["form"]
+        version_three = api.update_form_template(
+            "history-test",
+            api.FormTemplateUpdate(template={**version_two, "description": "Third"}, publish=True),
+            admin=admin,
+        )["form"]
+        templates = [item for item in api.read_json(api.TEMPLATES_FILE, []) if item.get("id") == "history-test"]
+
+        self.assertEqual(version_three["version"], 3)
+        self.assertEqual(len(templates), 2)
+        self.assertEqual([item["status"] for item in sorted(templates, key=lambda item: item["version"])], ["archived", "active"])
+        self.assertEqual([item["version"] for item in sorted(templates, key=lambda item: item["version"])], [2, 3])
+
 
 if __name__ == "__main__":
     unittest.main()
