@@ -2047,17 +2047,18 @@ textarea.field-control {
 
 .submission-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 420px) 1fr;
-  min-height: 560px;
+  grid-template-columns: 1fr;
+  min-height: 0;
 }
 
 .submission-list {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   align-content: start;
-  gap: 10px;
-  border-right: 1px solid var(--line);
-  max-height: calc(100vh - 230px);
-  overflow: auto;
+  gap: 12px;
+  border-right: 0;
+  max-height: none;
+  overflow: visible;
 }
 
 .load-more-button {
@@ -2421,9 +2422,10 @@ textarea.field-control {
 
 .staff-dashboard {
   display: grid;
-  grid-template-columns: repeat(5, minmax(125px, 1fr)) minmax(260px, 1.4fr);
-  gap: 14px;
-  margin: 18px 0 22px;
+  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  align-items: start;
+  gap: 12px;
+  margin: 14px 0 18px;
 }
 
 .dashboard-stat,
@@ -2432,29 +2434,43 @@ textarea.field-control {
   border-radius: 14px;
   background: #ffffff;
   box-shadow: var(--shadow-soft);
-  padding: 16px;
+  padding: 14px;
+}
+
+.dashboard-stat {
+  min-height: 118px;
 }
 
 .dashboard-stat span {
   display: block;
   color: var(--brand-blue);
-  font-size: 32px;
+  font-size: 40px;
   font-weight: 900;
-  line-height: 1;
+  line-height: 0.9;
 }
 
 .dashboard-stat strong,
 .priority-queue strong {
   display: block;
-  margin-top: 8px;
+  margin-top: 9px;
   color: var(--ink);
+}
+
+.dashboard-stat strong {
+  font-size: 0.98rem;
+  line-height: 1.15;
 }
 
 .dashboard-stat p,
 .priority-queue p,
 .priority-queue small {
   color: var(--muted);
-  margin: 6px 0 0;
+  margin: 5px 0 0;
+}
+
+.dashboard-stat p {
+  font-size: 0.88rem;
+  line-height: 1.25;
 }
 
 .dashboard-stat.urgent {
@@ -2474,6 +2490,9 @@ textarea.field-control {
 
 .priority-queue {
   display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(180px, 220px) repeat(auto-fit, minmax(190px, 1fr));
+  align-items: center;
   gap: 8px;
 }
 
@@ -2489,6 +2508,17 @@ textarea.field-control {
   cursor: pointer;
   padding: 10px 12px;
   text-align: left;
+}
+
+.priority-queue button span,
+.priority-queue button small {
+  min-width: 0;
+}
+
+.priority-queue button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .priority-queue button:hover {
@@ -3470,6 +3500,48 @@ textarea.field-control {
   gap: 12px;
   padding: 14px;
   background: #fbfdff;
+}
+
+.template-field-editor.dragging {
+  opacity: 0.58;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(31, 111, 184, 0.12);
+}
+
+.template-field-reorder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e3ebf5;
+}
+
+.template-field-reorder > span:not(.drag-handle) {
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #eaf2fb;
+  color: var(--accent-strong);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.drag-handle {
+  border: 1px dashed #a9bdd5;
+  border-radius: 999px;
+  background: #f6f9fd;
+  color: #4e6380;
+  cursor: grab;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 6px 10px;
+  text-transform: uppercase;
+}
+
+.template-field-editor:active .drag-handle {
+  cursor: grabbing;
 }
 
 .template-field-topline {

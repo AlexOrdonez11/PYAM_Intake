@@ -255,6 +255,7 @@ function TemplateEditor({ original, draft, onChange, onSave, onSaveDraft, onRese
   const [previewMode, setPreviewMode] = useState("patient");
   const [previewAnswers, setPreviewAnswers] = useState({});
   const [publishConfirmed, setPublishConfirmed] = useState(false);
+  const [draggedField, setDraggedField] = useState(null);
   const issues = templateIssues(draft);
   const publishErrors = issues.filter((issue) => issue.severity === "error");
   const changeSummary = templateChangeSummary(original, draft);
@@ -328,6 +329,23 @@ function TemplateEditor({ original, draft, onChange, onSave, onSaveDraft, onRese
       section.fields = moveArrayItem(section.fields || [], fieldIndex, fieldIndex + direction);
       return section;
     });
+  }
+
+  function moveFieldTo(sectionIndex, fromIndex, toIndex) {
+    if (fromIndex === toIndex) return;
+    patchSection(sectionIndex, (section) => {
+      section.fields = moveArrayItem(section.fields || [], fromIndex, toIndex);
+      return section;
+    });
+  }
+
+  function handleFieldDrop(sectionIndex, fieldIndex) {
+    if (!draggedField || draggedField.sectionIndex !== sectionIndex) {
+      setDraggedField(null);
+      return;
+    }
+    moveFieldTo(sectionIndex, draggedField.fieldIndex, fieldIndex);
+    setDraggedField(null);
   }
 
   function addNote(sectionIndex) {
@@ -496,7 +514,33 @@ function TemplateEditor({ original, draft, onChange, onSave, onSaveDraft, onRese
 
             <div className="template-field-list">
               {(section.fields || []).map((field, fieldIndex) => (
-                <article className="template-field-editor" key={field.id || fieldIndex}>
+                <article
+                  className={`template-field-editor ${draggedField?.sectionIndex === sectionIndex && draggedField?.fieldIndex === fieldIndex ? "dragging" : ""}`}
+                  draggable
+                  key={field.id || fieldIndex}
+                  onDragStart={(event) => {
+                    setDraggedField({ sectionIndex, fieldIndex });
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", `${sectionIndex}:${fieldIndex}`);
+                  }}
+                  onDragOver={(event) => {
+                    if (draggedField?.sectionIndex === sectionIndex) {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                    }
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    handleFieldDrop(sectionIndex, fieldIndex);
+                  }}
+                  onDragEnd={() => setDraggedField(null)}
+                >
+                  <div className="template-field-reorder">
+                    <span className="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">Drag</span>
+                    <span>{fieldIndex + 1}</span>
+                    <button className="secondary-button icon-button-text" type="button" onClick={() => moveField(sectionIndex, fieldIndex, -1)} disabled={fieldIndex === 0}>Up</button>
+                    <button className="secondary-button icon-button-text" type="button" onClick={() => moveField(sectionIndex, fieldIndex, 1)} disabled={fieldIndex === (section.fields || []).length - 1}>Down</button>
+                  </div>
                   <div className="template-field-topline">
                     <label>
                       <span>Question label</span>
@@ -516,8 +560,6 @@ function TemplateEditor({ original, draft, onChange, onSave, onSaveDraft, onRese
                   <div className="template-field-flags">
                     <label className="choice-option"><input type="checkbox" checked={Boolean(field.required)} onChange={(event) => patchField(sectionIndex, fieldIndex, (nextField) => ({ ...nextField, required: event.target.checked }))} /><span>Required</span></label>
                     <label className="choice-option"><input type="checkbox" checked={field.owner === "staff" || field.staffOnly === true} onChange={(event) => patchField(sectionIndex, fieldIndex, (nextField) => ({ ...nextField, owner: event.target.checked ? "staff" : "patient", staffOnly: event.target.checked || undefined }))} /><span>Staff-only</span></label>
-                    <button className="secondary-button icon-button-text" type="button" onClick={() => moveField(sectionIndex, fieldIndex, -1)} disabled={fieldIndex === 0}>Move up</button>
-                    <button className="secondary-button icon-button-text" type="button" onClick={() => moveField(sectionIndex, fieldIndex, 1)} disabled={fieldIndex === (section.fields || []).length - 1}>Move down</button>
                     <button className="secondary-button icon-button-text" type="button" onClick={() => duplicateField(sectionIndex, fieldIndex)}>Duplicate</button>
                     <button className="ghost-button" type="button" onClick={() => patchSection(sectionIndex, (nextSection) => ({ ...nextSection, fields: (nextSection.fields || []).filter((_, index) => index !== fieldIndex) }))}>Remove field</button>
                   </div>

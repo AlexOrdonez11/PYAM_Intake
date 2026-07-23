@@ -1280,8 +1280,6 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
               </button>
             ) : null}
           </div>
-
-          {detailContent}
         </div>
       </div>
     </section>

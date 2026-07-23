@@ -71,6 +71,8 @@ export function isStaffOnlyField(field) {
   const id = String(field.id || "").toLowerCase();
   const label = String(field.label || "").toLowerCase();
 
+  if (["baby_id", "child_id", "patient_id"].includes(id)) return true;
+  if (label.includes("baby id") || label.includes("child id") || label.includes("patient id")) return true;
   if (id.startsWith("lead_")) return true;
   if (id.startsWith("mnvfc_")) return true;
   if (id.includes("staff_notes")) return true;

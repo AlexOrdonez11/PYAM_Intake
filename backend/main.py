@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field
 from pymongo import ASCENDING, MongoClient, ReturnDocument
 from pymongo.collection import Collection
+from pymongo.errors import DuplicateKeyError
 
 from backend.db_schema import ensure_database_schema, seed_form_templates
 from backend.scoring import add_calculated_scores, review_for_submission
@@ -437,6 +438,19 @@ def flatten_template_fields(template: dict[str, Any]) -> list[dict[str, Any]]:
     return fields
 
 
+def is_staff_or_internal_field(field: dict[str, Any]) -> bool:
+    field_id = str(field.get("id") or "").lower()
+    label = str(field.get("label") or "").lower()
+    return (
+        bool(field.get("staffOnly")) or
+        field.get("owner") == "staff" or
+        field_id in {"baby_id", "child_id", "patient_id"} or
+        "baby id" in label or
+        "child id" in label or
+        "patient id" in label
+    )
+
+
 def template_submission_snapshot(template: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": template.get("id"),
@@ -474,6 +488,8 @@ def template_submission_snapshot(template: dict[str, Any]) -> dict[str, Any]:
 def validate_submission(template: dict[str, Any], answers: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     for field in flatten_template_fields(template):
+        if is_staff_or_internal_field(field):
+            continue
         if not field.get("required"):
             continue
 
@@ -554,6 +570,22 @@ def next_template_version(form_id: str) -> int:
     templates = read_json(TEMPLATES_FILE, [])
     versions = [int(item.get("version", 1)) for item in templates if item.get("id") == form_id]
     return max(versions, default=0) + 1
+
+
+def template_version_exists(form_id: str, version: int) -> bool:
+    if mongo_db is not None:
+        return form_templates().count_documents({"id": form_id, "version": version}, limit=1) > 0
+    return any(
+        item.get("id") == form_id and int(item.get("version", 1)) == version
+        for item in read_json(TEMPLATES_FILE, [])
+    )
+
+
+def next_available_template_version(form_id: str, minimum: int | None = None) -> int:
+    version = max(next_template_version(form_id), minimum or 1)
+    while template_version_exists(form_id, version):
+        version += 1
+    return version
 
 
 def patient_name_from_answers(answers: dict[str, Any]) -> str:
@@ -805,14 +837,46 @@ def update_form_template(
         raise HTTPException(status_code=400, detail="Template id cannot be changed from this endpoint.")
     warnings = template_guardrail_warnings(template)
     requested_version = int(template.get("version", 1))
-    if payload.publish:
-        template["version"] = next_template_version(form_id)
-        template["status"] = "active"
-    else:
-        template["status"] = "draft"
 
     now = utc_now()
     actor = audit_actor(admin)
+
+    if mongo_db is not None:
+        existing_draft = form_templates().find_one(
+            {"id": form_id, "status": "draft"},
+            sort=[("updatedAt", -1), ("version", -1)],
+        )
+        existing_draft_id = existing_draft.get("_id") if existing_draft else None
+        existing_draft_version = int(existing_draft.get("version", 1)) if existing_draft else None
+        if payload.publish and existing_draft_version == requested_version:
+            template["version"] = existing_draft_version
+        elif payload.publish:
+            template["version"] = next_available_template_version(form_id)
+        elif existing_draft_version:
+            template["version"] = existing_draft_version
+        else:
+            template["version"] = next_available_template_version(form_id)
+    else:
+        templates = read_json(TEMPLATES_FILE, [])
+        existing_draft_index = next(
+            (i for i, item in enumerate(templates) if item.get("id") == form_id and item.get("status") == "draft"),
+            -1,
+        )
+        existing_draft_version = (
+            int(templates[existing_draft_index].get("version", 1))
+            if existing_draft_index >= 0
+            else None
+        )
+        if payload.publish and existing_draft_version == requested_version:
+            template["version"] = existing_draft_version
+        elif payload.publish:
+            template["version"] = next_available_template_version(form_id)
+        elif existing_draft_version:
+            template["version"] = existing_draft_version
+        else:
+            template["version"] = next_available_template_version(form_id)
+
+    template["status"] = "active" if payload.publish else "draft"
     event = audit_event(
         "form_template_published" if payload.publish else "form_template_draft_saved",
         actor,
@@ -832,11 +896,41 @@ def update_form_template(
     if mongo_db is not None:
         if payload.publish:
             form_templates().update_many(
-                {"id": form_id, "status": {"$in": ["active", "draft"]}},
+                {"id": form_id, "status": "active"},
                 {"$set": {"status": "archived", "updatedAt": now}},
             )
-        result = form_templates().insert_one(dict(template))
-        saved = form_templates().find_one({"_id": result.inserted_id})
+            if existing_draft_id and existing_draft_version == template["version"]:
+                form_templates().replace_one({"_id": existing_draft_id}, dict(template))
+                form_templates().delete_many({"id": form_id, "status": "draft", "_id": {"$ne": existing_draft_id}})
+                saved = form_templates().find_one({"id": form_id, "version": template["version"]})
+            else:
+                form_templates().delete_many({"id": form_id, "status": "draft"})
+                saved = None
+                for _ in range(5):
+                    try:
+                        result = form_templates().insert_one(dict(template))
+                        saved = form_templates().find_one({"_id": result.inserted_id})
+                        break
+                    except DuplicateKeyError:
+                        template["version"] = next_available_template_version(form_id, template["version"] + 1)
+                        event["metadata"]["version"] = template["version"]
+                if saved is None:
+                    raise HTTPException(status_code=409, detail="Unable to allocate a new template version. Please retry.")
+        elif existing_draft_id:
+            form_templates().replace_one({"_id": existing_draft_id}, dict(template))
+            saved = form_templates().find_one({"id": form_id, "status": "draft"})
+        else:
+            saved = None
+            for _ in range(5):
+                try:
+                    result = form_templates().insert_one(dict(template))
+                    saved = form_templates().find_one({"_id": result.inserted_id})
+                    break
+                except DuplicateKeyError:
+                    template["version"] = next_available_template_version(form_id, template["version"] + 1)
+                    event["metadata"]["version"] = template["version"]
+            if saved is None:
+                raise HTTPException(status_code=409, detail="Unable to allocate a draft template version. Please retry.")
         save_audit_event(event)
         return {"form": normalize_document(saved), "warnings": warnings}
 
@@ -846,11 +940,15 @@ def update_form_template(
     if payload.publish:
         templates = [
             {**item, "status": "archived", "updatedAt": now}
-            if item.get("id") == form_id and item.get("status", "active") in {"active", "draft"}
+            if item.get("id") == form_id and item.get("status", "active") == "active"
             else item
             for item in templates
         ]
-        templates.append(template)
+        draft_index = next((i for i, item in enumerate(templates) if item.get("id") == form_id and item.get("status") == "draft"), -1)
+        if draft_index == -1:
+            templates.append(template)
+        else:
+            templates[draft_index] = template
     else:
         draft_index = next((i for i, item in enumerate(templates) if item.get("id") == form_id and item.get("status") == "draft"), -1)
         if draft_index == -1:

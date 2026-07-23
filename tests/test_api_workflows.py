@@ -91,6 +91,39 @@ class ApiWorkflowTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 422)
         self.assertEqual(api.get_local_submissions(), [])
 
+    def test_create_submission_does_not_require_internal_or_staff_fields_from_patient(self):
+        self.state.stop()
+        internal_template = {
+            "id": "internal-field-test",
+            "name": "Internal Field Test",
+            "category": "Tests",
+            "status": "active",
+            "version": 1,
+            "sections": [
+                {
+                    "title": "Patient and Visit Information",
+                    "fields": [
+                        {"id": "patient_name", "label": "Patient name", "type": "text", "required": True},
+                        {"id": "date_of_birth", "label": "Date of birth", "type": "date", "required": True},
+                        {"id": "baby_id", "label": "Baby ID #", "type": "text", "required": True},
+                        {"id": "staff_initials", "label": "Staff initials", "type": "text", "required": True, "staffOnly": True},
+                    ],
+                }
+            ],
+        }
+        self.state = IsolatedBackendState(api, templates=[internal_template]).start()
+
+        response = api.create_submission(
+            api.SubmissionCreate(
+                formId="internal-field-test",
+                answers={"patient_name": "Mayo Demo", "date_of_birth": "2024-01-01"},
+            ),
+            request_user=None,
+        )
+
+        self.assertEqual(response["submission"]["status"], "new")
+        self.assertEqual(response["submission"]["patientName"], "Mayo Demo")
+
     def test_delete_form_draft_removes_local_draft_template(self):
         draft_template = {
             "id": "draft-test",
@@ -119,6 +152,45 @@ class ApiWorkflowTests(unittest.TestCase):
                 admin={"id": "admin-1", "email": "admin@example.com", "name": "Admin", "role": "admin"},
             )
         self.assertEqual(raised.exception.status_code, 404)
+
+    def test_template_draft_can_be_saved_repeatedly_and_published(self):
+        active_template = {
+            "id": "publish-test",
+            "name": "Publish Test",
+            "category": "Tests",
+            "status": "active",
+            "version": 1,
+            "sections": [{"title": "Patient", "fields": []}],
+        }
+        api.write_json(api.TEMPLATES_FILE, [active_template])
+        admin = {"id": "admin-1", "email": "admin@example.com", "name": "Admin", "role": "admin"}
+
+        first_draft = api.update_form_template(
+            "publish-test",
+            api.FormTemplateUpdate(template={**active_template, "name": "Publish Test Draft"}, publish=False),
+            admin=admin,
+        )["form"]
+        second_draft = api.update_form_template(
+            "publish-test",
+            api.FormTemplateUpdate(template={**first_draft, "description": "Edited again"}, publish=False),
+            admin=admin,
+        )["form"]
+
+        self.assertEqual(first_draft["version"], second_draft["version"])
+        self.assertEqual(len([item for item in api.read_json(api.TEMPLATES_FILE, []) if item.get("status") == "draft"]), 1)
+
+        published = api.update_form_template(
+            "publish-test",
+            api.FormTemplateUpdate(template=second_draft, publish=True),
+            admin=admin,
+        )["form"]
+        templates = api.read_json(api.TEMPLATES_FILE, [])
+
+        self.assertEqual(published["status"], "active")
+        self.assertEqual(published["version"], second_draft["version"])
+        self.assertEqual(len([item for item in templates if item.get("status") == "draft"]), 0)
+        self.assertEqual(len([item for item in templates if item.get("status") == "active"]), 1)
+        self.assertEqual(len({(item["id"], item["version"]) for item in templates}), len(templates))
 
 
 if __name__ == "__main__":
