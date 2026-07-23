@@ -8,6 +8,7 @@ export function isPatientInfoSection(sectionTitle = "") {
 
 export function isRepeatedDemographicField(field, sectionTitle = "") {
   if (!field || isPatientInfoSection(sectionTitle)) return false;
+  if (field.staffOnly === false || field.owner === "patient") return false;
 
   const id = String(field.id || "").toLowerCase();
   const label = String(field.label || "").toLowerCase().trim();
