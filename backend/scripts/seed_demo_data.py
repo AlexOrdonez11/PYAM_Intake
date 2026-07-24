@@ -142,7 +142,7 @@ def field_value(field: dict[str, Any], patient: dict[str, Any], scenario: str, i
         "relationship": "Mother",
         "phone": patient["phone"],
         "visit_date": datetime.now(timezone.utc).date().isoformat(),
-        "visit_age": field.get("label", "").replace("Visit age", "") or "Age appropriate",
+        "visit_age": field.get("label", "").replace("Visit date", "") or "Age appropriate",
         "clinic_location": "Maplewood" if index % 2 else "Eagan",
         "patient_email": patient["email"],
         "guardian_email": patient["email"],

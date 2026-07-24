@@ -17,7 +17,7 @@ export function calculateAge(dateOfBirth) {
 }
 
 function wellVisitFormId(age, location) {
-  if (!age) return "well-child-visit";
+  if (!age) return null;
   const months = age.totalMonths;
   if (months < 1) return "newborn-2-5-days";
   if (months < 2) return "1-month-visit";
@@ -53,7 +53,7 @@ function wellVisitFormId(age, location) {
   if (year <= 14) return "13-14-year-visit";
   if (year <= 17) return "15-17-year-visit";
   if (year <= 21) return "18-21-year-visit";
-  return "well-child-visit";
+  return null;
 }
 
 function portalFormId(age) {

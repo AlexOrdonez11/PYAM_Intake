@@ -930,6 +930,7 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
   const scoringCards = selectedSubmission ? scoringCardsForSubmission(selectedSubmission, selectedAnswers) : [];
   const dashboardCounts = reviewCounts(submissions);
   const filteredCounts = reviewCounts(visibleSubmissions);
+  const isInitialQueueLoading = isLoading && submissions.length === 0;
   const priorityQueue = sortSubmissions(submissions
     .filter((submission) => submission.review?.status === "needs-review" || ["needs-follow-up", "needs-patient-follow-up"].includes(submission.status))
     , "priority").slice(0, 5);
@@ -1149,7 +1150,11 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
         <div className="panel-header">
           <div>
             <h2>Submissions</h2>
-            <p>{visibleSubmissions.length} of {submissions.length} records shown{activeFilterCount ? ` with ${activeFilterCount} active filter${activeFilterCount === 1 ? "" : "s"}` : ""}.</p>
+            <p>
+              {isInitialQueueLoading
+                ? "Loading intake records."
+                : `${visibleSubmissions.length} of ${submissions.length} records shown${activeFilterCount ? ` with ${activeFilterCount} active filter${activeFilterCount === 1 ? "" : "s"}` : ""}.`}
+            </p>
           </div>
           <div className="submission-controls">
             <div className="queue-search-control" role="search">
@@ -1207,45 +1212,64 @@ export function SubmissionsPage({ submissions, isLoading, detailLoading, selecte
           </div>
         </div>
 
-        <section className="staff-dashboard">
-          <div className="dashboard-stat urgent">
-            <span>{dashboardCounts.needsReview}</span>
-            <strong>Needs review</strong>
-            <p>{dashboardCounts.high} high priority flags</p>
-          </div>
-          <div className="dashboard-stat">
-            <span>{dashboardCounts.new}</span>
-            <strong>New</strong>
-            <p>{dashboardCounts.draft} draft records</p>
-          </div>
-          <div className="dashboard-stat">
-            <span>{dashboardCounts.followUp}</span>
-            <strong>Patient follow-up</strong>
-            <p>Needs patient outreach</p>
-          </div>
-          <div className="dashboard-stat complete">
-            <span>{dashboardCounts.readyForChart}</span>
-            <strong>Ready for chart</strong>
-            <p>{dashboardCounts.complete} completed</p>
-          </div>
-          <div className="dashboard-stat filtered">
-            <span>{visibleSubmissions.length}</span>
-            <strong>Showing</strong>
-            <p>{filteredCounts.needsReview} need review in this view</p>
-          </div>
-          <div className="priority-queue">
-            <div>
-              <p className="eyebrow">Priority queue</p>
-              <strong>Review next</strong>
+        {isInitialQueueLoading ? (
+          <section className="staff-dashboard loading-dashboard" aria-busy="true" aria-label="Loading submission summary">
+            {["Needs review", "New", "Patient follow-up", "Ready for chart", "Showing"].map((label) => (
+              <div className="dashboard-stat loading-stat" key={label}>
+                <span className="loading-value">...</span>
+                <strong>{label}</strong>
+                <p>Loading latest records</p>
+              </div>
+            ))}
+            <div className="priority-queue loading-priority">
+              <div>
+                <p className="eyebrow">Priority queue</p>
+                <strong>Review next</strong>
+              </div>
+              <p>Loading priority records.</p>
             </div>
-            {priorityQueue.length ? priorityQueue.map((submission) => (
-              <button key={submission.id} type="button" onClick={() => onSelect(submission.id)}>
-                <span>{submission.patientName}</span>
-                <small>{submission.review?.flags?.[0]?.label || statusLabelText(submission.status)}</small>
-              </button>
-            )) : <p>No priority submissions right now.</p>}
-          </div>
-        </section>
+          </section>
+        ) : (
+          <section className="staff-dashboard">
+            <div className="dashboard-stat urgent">
+              <span>{dashboardCounts.needsReview}</span>
+              <strong>Needs review</strong>
+              <p>{dashboardCounts.high} high priority flags</p>
+            </div>
+            <div className="dashboard-stat">
+              <span>{dashboardCounts.new}</span>
+              <strong>New</strong>
+              <p>{dashboardCounts.draft} draft records</p>
+            </div>
+            <div className="dashboard-stat">
+              <span>{dashboardCounts.followUp}</span>
+              <strong>Patient follow-up</strong>
+              <p>Needs patient outreach</p>
+            </div>
+            <div className="dashboard-stat complete">
+              <span>{dashboardCounts.readyForChart}</span>
+              <strong>Ready for chart</strong>
+              <p>{dashboardCounts.complete} completed</p>
+            </div>
+            <div className="dashboard-stat filtered">
+              <span>{visibleSubmissions.length}</span>
+              <strong>Showing</strong>
+              <p>{filteredCounts.needsReview} need review in this view</p>
+            </div>
+            <div className="priority-queue">
+              <div>
+                <p className="eyebrow">Priority queue</p>
+                <strong>Review next</strong>
+              </div>
+              {priorityQueue.length ? priorityQueue.map((submission) => (
+                <button key={submission.id} type="button" onClick={() => onSelect(submission.id)}>
+                  <span>{submission.patientName}</span>
+                  <small>{submission.review?.flags?.[0]?.label || statusLabelText(submission.status)}</small>
+                </button>
+              )) : <p>No priority submissions right now.</p>}
+            </div>
+          </section>
+        )}
 
         <div className="submission-layout">
           <div className="submission-list">

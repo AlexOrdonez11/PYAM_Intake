@@ -288,6 +288,18 @@ def vanderbilt_followup(form_id, name, prefix, labels, perf_start, perf_labels, 
         {"id": "medication_status", "label": "This evaluation is based on a time when the child", "type": "radio", "options": MEDICATION_OPTIONS},
         {"id": f"{prefix}_followup_reason", "label": "Reason for follow up", "type": "textarea"},
     ])
+    if teacher:
+        info_fields = [
+            {"id": "patient_name", "label": "Child's name", "type": "text", "required": True},
+            {"id": "teacher_name", "label": "Teacher's name", "type": "text", "required": True},
+            {"id": "today_date", "label": "Today's date", "type": "date"},
+            {"id": "school", "label": "School", "type": "text"},
+            {"id": "grade", "label": "Grade", "type": "text"},
+            {"id": "teacher_fax", "label": "Teacher's fax number", "type": "text"},
+            {"id": "class_period", "label": "Time of day you work with child", "type": "text"},
+            {"id": "evaluation_period", "label": "Weeks or months you have been able to evaluate the behaviors", "type": "text"},
+            {"id": "medication_status", "label": "This evaluation is based on a time when the child", "type": "radio", "options": MEDICATION_OPTIONS},
+        ]
     kind = "teacher_followup" if teacher else "parent_followup"
     return {
         "id": form_id,
@@ -300,7 +312,7 @@ def vanderbilt_followup(form_id, name, prefix, labels, perf_start, perf_labels, 
         "status": "active",
         "sourceFile": source_file,
         "sections": [
-            {"title": "Child and Rater Information", "fields": info_fields},
+            {"title": "Child and Teacher Information" if teacher else "Child and Rater Information", "fields": info_fields},
             {"title": "Current Symptoms", "fields": symptom_fields(prefix, labels)},
             {"title": "Academic and Social Performance", "fields": performance_fields(prefix, perf_start, perf_labels)},
             {"title": "Side Effects", "fields": side_effect_fields(prefix)},

@@ -345,8 +345,8 @@ export default function App() {
     }
   }, [authToken, currentUser]);
 
-  const loadSubmissions = useCallback(async ({ append = false, cursor = "" } = {}) => {
-    if (!authToken) {
+  const loadSubmissions = useCallback(async ({ append = false, cursor = "", token = authToken } = {}) => {
+    if (!token) {
       setSubmissions([]);
       setSelectedSubmission(null);
       setSubmissionsLoaded(false);
@@ -354,10 +354,11 @@ export default function App() {
       setSubmissionsHasMore(false);
       return;
     }
+    if (!append) setSubmissionsLoaded(false);
     setSubmissionsLoading(true);
     try {
       const query = buildSubmissionQuery({ cursor, query: submissionQuery });
-      const payload = await api(`/api/submissions${query}`, {}, authToken);
+      const payload = await api(`/api/submissions${query}`, {}, token);
       const summaries = payload.submissions.map((submission) => enrichSubmission(submission));
       setSubmissions((current) => append ? [...current, ...summaries] : summaries);
       setSubmissionsNextCursor(payload.nextCursor || null);
@@ -378,13 +379,13 @@ export default function App() {
     await loadSubmissions({ append: true, cursor: submissionsNextCursor });
   }, [loadSubmissions, submissionsNextCursor]);
 
-  const refreshAll = useCallback(async () => {
+  const refreshAll = useCallback(async ({ token = authToken, user = currentUser } = {}) => {
     await checkHealth();
     await loadBootstrapState();
     await loadForms();
-    await loadSubmissions();
-    await loadStaff();
-  }, [checkHealth, loadBootstrapState, loadForms, loadSubmissions, loadStaff]);
+    await loadSubmissions({ token });
+    await loadStaff(user, token);
+  }, [authToken, checkHealth, currentUser, loadBootstrapState, loadForms, loadStaff, loadSubmissions]);
 
   useEffect(() => {
     async function restore() {
@@ -414,7 +415,7 @@ export default function App() {
         setAuthSession({ accessToken: "", user: null });
         navigateToView("login", { replace: true });
       }
-      await refreshAll();
+      await refreshAll({ token: authToken, user: restoredUser });
       if (restoredUser?.role === "admin") await loadStaff(restoredUser, authToken);
       setAuthReady(true);
     }
@@ -453,7 +454,7 @@ export default function App() {
       setShowAllForms(true);
       setRoutingComplete(true);
       navigateToView(IS_STAFF_APP ? "submissions" : "intake");
-      await refreshAll();
+      await refreshAll({ token: payload.accessToken, user: payload.user });
       if (payload.user?.role === "admin") await loadStaff(payload.user, payload.accessToken);
     } catch (error) {
       setAuthError(true);

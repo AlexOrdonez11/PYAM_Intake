@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { FormField } from "../../components/fields/FormField";
 import { AsqScoreTable } from "../scoring/AsqScoreTable";
 import { calculateAsqScores } from "../scoring/asqScoring";
@@ -25,6 +26,14 @@ function ContentItem({ item }) {
       ) : null}
     </div>
   );
+}
+
+function groupedFields(fields) {
+  return fields.map((field, index) => {
+    const previous = fields[index - 1];
+    const startsGroup = field.groupTitle && field.groupTitle !== previous?.groupTitle;
+    return { field, startsGroup };
+  });
 }
 
 export function buildSubmissionAnswers(form, answers, mode) {
@@ -234,7 +243,10 @@ export function FormRenderer({ form, answers, mode, onAnswerChange, onSubmit, on
 
       <AsqScoreTable formId={form.id} answers={answers} />
 
-      {(form.sections || []).map((section, sectionIndex) => {
+      {(form.sections || [])
+        .map((section, sectionIndex) => ({ section, sectionIndex }))
+        .filter(({ section }) => mode === "staff" || !(section.staffOnly || section.owner === "staff"))
+        .map(({ section, sectionIndex }) => {
         const visibleFields = (section.fields || [])
           .filter((field) => !isRepeatedDemographicField(field, section.title))
           .filter((field) => mode === "staff" || !isStaffOnlyField(field));
@@ -256,13 +268,20 @@ export function FormRenderer({ form, answers, mode, onAnswerChange, onSubmit, on
             ) : null}
             {visibleFields.length ? (
               <div className="field-grid">
-                {visibleFields.map((field) => (
-                  <FormField
-                    field={field}
-                    key={field.id}
-                    value={answers[field.id]}
-                    onChange={onAnswerChange}
-                  />
+                {groupedFields(visibleFields).map(({ field, startsGroup }) => (
+                  <Fragment key={field.id}>
+                    {startsGroup ? (
+                      <div className={`field-group-heading ${field.groupVariant || ""}`}>
+                        <h4>{field.groupTitle}</h4>
+                        {field.groupDescription ? <p>{field.groupDescription}</p> : null}
+                      </div>
+                    ) : null}
+                    <FormField
+                      field={field}
+                      value={answers[field.id]}
+                      onChange={onAnswerChange}
+                    />
+                  </Fragment>
                 ))}
               </div>
             ) : null}

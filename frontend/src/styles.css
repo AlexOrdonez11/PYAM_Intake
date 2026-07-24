@@ -1437,6 +1437,41 @@ body.patient-mode[data-view="intake"] .intake-brand-row {
   gap: 16px;
 }
 
+.field-group-heading {
+  grid-column: 1 / -1;
+  margin: 14px 0 2px;
+  padding: 12px 14px;
+  border-left: 5px solid var(--brand-blue);
+  border-bottom: 2px solid #c7d6eb;
+  background: #f6f9fd;
+}
+
+.field-group-heading h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.18rem;
+  line-height: 1.2;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 7px;
+}
+
+.field-group-heading p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.field-group-heading.compact {
+  padding: 9px 12px;
+  background: #ffffff;
+}
+
+.field-group-heading.warning {
+  border-left-color: #b9862b;
+  background: #fff8e8;
+}
+
 .section-content {
   display: grid;
   gap: 12px;
@@ -2486,6 +2521,22 @@ textarea.field-control {
 .dashboard-stat.filtered {
   background: #f2f7ff;
   border-color: #b9cdee;
+}
+
+.loading-dashboard .dashboard-stat,
+.loading-dashboard .priority-queue {
+  background: #f8fbff;
+  border-color: #d8e4f2;
+}
+
+.dashboard-stat .loading-value {
+  color: #9fb1c9;
+  letter-spacing: 0;
+}
+
+.loading-stat p,
+.loading-priority p {
+  color: #6f7f95;
 }
 
 .priority-queue {
