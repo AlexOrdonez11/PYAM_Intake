@@ -21,6 +21,8 @@ export function getFormProgress(form, answers, mode) {
     const fields = (section.fields || [])
       .filter((field) => !isRepeatedDemographicField(field, section.title))
       .filter((field) => mode === "staff" || !isStaffOnlyField(field));
+    const completedFields = fields.filter((field) => isFilled(answers[field.id], field));
+    const missingFields = fields.filter((field) => !isFilled(answers[field.id], field));
     const requiredFields = fields.filter((field) => field.required);
     const completedRequired = requiredFields.filter((field) => isFilled(answers[field.id], field));
     const missingRequired = requiredFields.filter((field) => !isFilled(answers[field.id], field));
@@ -28,25 +30,33 @@ export function getFormProgress(form, answers, mode) {
       id: `section_${sectionIndex}`,
       title: section.title || `Section ${sectionIndex + 1}`,
       totalFields: fields.length,
+      completedFieldCount: completedFields.length,
+      missingFields,
       requiredCount: requiredFields.length,
       completedRequiredCount: completedRequired.length,
       missingRequired,
-      percent: requiredFields.length ? Math.round((completedRequired.length / requiredFields.length) * 100) : 100,
-      isComplete: missingRequired.length === 0
+      percent: fields.length ? Math.round((completedFields.length / fields.length) * 100) : 0,
+      isComplete: fields.length > 0 && missingFields.length === 0,
+      isRequiredComplete: missingRequired.length === 0
     };
   });
   const fields = getVisibleFields(form, mode);
+  const completedFields = fields.filter((field) => isFilled(answers[field.id], field));
+  const missingFields = fields.filter((field) => !isFilled(answers[field.id], field));
   const requiredFields = fields.filter((field) => field.required);
   const completedRequired = requiredFields.filter((field) => isFilled(answers[field.id], field));
   const missingRequired = requiredFields.filter((field) => !isFilled(answers[field.id], field));
 
   return {
     totalFields: fields.length,
+    completedFieldCount: completedFields.length,
+    missingFieldCount: missingFields.length,
     requiredCount: requiredFields.length,
     completedRequiredCount: completedRequired.length,
     missingRequired,
-    percent: requiredFields.length ? Math.round((completedRequired.length / requiredFields.length) * 100) : 100,
+    percent: fields.length ? Math.round((completedFields.length / fields.length) * 100) : 0,
     sections,
-    completedSectionCount: sections.filter((section) => section.isComplete).length
+    completedSectionCount: sections.filter((section) => section.totalFields > 0 && section.isComplete).length,
+    requiredSectionReadyCount: sections.filter((section) => section.totalFields > 0 && section.isRequiredComplete).length
   };
 }

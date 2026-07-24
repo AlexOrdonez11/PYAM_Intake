@@ -130,7 +130,7 @@ function getSubmitReview(form, answers, mode, progress) {
   const visibleFields = getVisibleFields(form, mode);
   const missingSignatures = visibleFields.filter((field) => field.type === "signature" && field.required && !isFilled(answers[field.id], field));
   const incompleteAsqScores = calculateAsqScores(form.id, answers).filter((score) => score.total === null);
-  const sectionsNeedingWork = progress.sections.filter((section) => section.totalFields > 0 && !section.isComplete);
+  const sectionsNeedingRequiredWork = progress.sections.filter((section) => section.totalFields > 0 && !section.isRequiredComplete);
 
   return [
     {
@@ -144,10 +144,10 @@ function getSubmitReview(form, answers, mode, progress) {
     {
       key: "sections",
       label: "Sections",
-      status: sectionsNeedingWork.length ? "needs-work" : "ready",
-      value: `${progress.completedSectionCount}/${progress.sections.length} ready`,
-      detail: sectionsNeedingWork.length ? `${sectionsNeedingWork.length} section${sectionsNeedingWork.length === 1 ? "" : "s"} still need required information.` : "Every section is ready.",
-      actionSection: sectionsNeedingWork[0]?.id
+      status: sectionsNeedingRequiredWork.length ? "needs-work" : "ready",
+      value: `${progress.requiredSectionReadyCount}/${progress.sections.length} ready`,
+      detail: sectionsNeedingRequiredWork.length ? `${sectionsNeedingRequiredWork.length} section${sectionsNeedingRequiredWork.length === 1 ? "" : "s"} still need required information.` : "Every section is ready to submit.",
+      actionSection: sectionsNeedingRequiredWork[0]?.id
     },
     {
       key: "signatures",
@@ -257,7 +257,7 @@ export function FormRenderer({ form, answers, mode, onAnswerChange, onSubmit, on
               <h3>{section.title}</h3>
               {sectionProgress ? (
                 <span className={`section-status ${sectionProgress.isComplete ? "complete" : "incomplete"}`}>
-                  {sectionProgress.isComplete ? "Ready" : `${sectionProgress.missingRequired.length} missing`}
+                  {sectionProgress.isComplete ? "Complete" : `${sectionProgress.percent}% complete`}
                 </span>
               ) : null}
             </div>

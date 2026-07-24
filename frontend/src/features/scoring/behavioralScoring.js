@@ -7,6 +7,11 @@ function optionScore(value) {
   return leadingScore ? Number(leadingScore[1]) : 0;
 }
 
+function optionScoreNullable(value) {
+  if (value === undefined || value === null || value === "") return null;
+  return optionScore(value);
+}
+
 function yesCount(answers, keys) {
   return keys.reduce((total, key) => total + (answers[key] === "Yes" ? 1 : 0), 0);
 }
@@ -219,12 +224,11 @@ export function calculateBehavioralScores(answers) {
   }
 
   const phq2Scores = [
-    optionScore(answers.phq2_interest),
-    optionScore(answers.phq2_down_depressed)
+    optionScoreNullable(answers.phq2_interest),
+    optionScoreNullable(answers.phq2_down_depressed)
   ];
-  const phq2 = sumNullable(phq2Scores);
-  if (phq2 !== null) {
-    next.phq2_total_score = String(phq2);
+  if (phq2Scores.every((score) => score !== null)) {
+    next.phq2_total_score = String(phq2Scores.reduce((total, score) => total + (score || 0), 0));
   }
 
   const actScores = [

@@ -91,6 +91,23 @@ class ScoringTests(unittest.TestCase):
         self.assertIn("CRAFFT positive", labels)
         self.assertIn("M-CHAT high risk", labels)
 
+    def test_phq2_total_is_not_calculated_until_both_items_are_answered(self):
+        self.assertNotIn("phq2_total_score", add_calculated_scores("behavioral-test", {}))
+        self.assertNotIn(
+            "phq2_total_score",
+            add_calculated_scores("behavioral-test", {"phq2_interest": "Several days (1)"}),
+        )
+
+        scored = add_calculated_scores(
+            "behavioral-test",
+            {
+                "phq2_interest": "Not at all (0)",
+                "phq2_down_depressed": "Several days (1)",
+            },
+        )
+
+        self.assertEqual(scored["phq2_total_score"], "1")
+
     def test_act_cact_asrs_ace_and_ppsc_scores_are_calculated(self):
         answers = {
             "activity_limit": "Some of the time",

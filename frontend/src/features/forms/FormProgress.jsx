@@ -18,7 +18,7 @@ export function FormProgress({ form, answers, mode }) {
         <div>
           <strong>{progress.percent}% complete</strong>
           <span>
-            {progress.completedRequiredCount} of {progress.requiredCount} required fields complete - {progress.completedSectionCount} of {progress.sections.length} sections ready
+            {progress.completedFieldCount} of {progress.totalFields} fields complete - {progress.completedSectionCount} of {sectionsWithFields.length} sections complete
           </span>
         </div>
         <span className={`progress-status ${progress.missingRequired.length ? "needs-work" : "ready"}`}>
@@ -39,7 +39,7 @@ export function FormProgress({ form, answers, mode }) {
             >
               <span>{section.title}</span>
               <strong>{section.percent}%</strong>
-              {section.missingRequired.length ? <small>{section.missingRequired.length} missing</small> : <small>Ready</small>}
+              {section.isComplete ? <small>Complete</small> : <small>{section.completedFieldCount}/{section.totalFields} fields</small>}
             </button>
           ))}
         </div>

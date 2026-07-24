@@ -17,6 +17,12 @@ def option_score(value: Any) -> int:
     return int(leading.group(1)) if leading else 0
 
 
+def option_score_nullable(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    return option_score(value)
+
+
 def yes_count(answers: dict[str, Any], keys: list[str]) -> int:
     return sum(1 for key in keys if answers.get(key) == "Yes")
 
@@ -226,9 +232,9 @@ def add_calculated_scores(form_id: str, answers: dict[str, Any]) -> dict[str, An
     if epds is not None:
         next_answers["epds_total_score"] = str(epds)
 
-    phq2 = sum_nullable([option_score(next_answers.get("phq2_interest")), option_score(next_answers.get("phq2_down_depressed"))])
-    if phq2 is not None:
-        next_answers["phq2_total_score"] = str(phq2)
+    phq2_scores = [option_score_nullable(next_answers.get("phq2_interest")), option_score_nullable(next_answers.get("phq2_down_depressed"))]
+    if all(score is not None for score in phq2_scores):
+        next_answers["phq2_total_score"] = str(sum(score or 0 for score in phq2_scores))
 
     act = sum_nullable([
         indexed_score(next_answers, "activity_limit", ["All of the time", "Most of the time", "Some of the time", "A little of the time", "None of the time"], 1),
